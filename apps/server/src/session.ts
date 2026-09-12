@@ -230,7 +230,7 @@ export class SessionManager {
 
     switch (msg.t) {
       case 'POSE':
-        room.onPose(seat, msg.q, msg.ct);
+        room.onPose(seat, msg.q, msg.ct, msg.z, msg.hold);
         return;
       case 'SWING':
         room.onSwing(seat, msg, conn);

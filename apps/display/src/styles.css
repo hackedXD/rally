@@ -367,3 +367,35 @@ button.copied { border-color: var(--accent); color: var(--accent); background: r
   50% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .sound-prompt { animation: none; } }
+
+/* ── Table tennis: the timing ring ─────────────────────────────────────────────
+   A ring closing on a fixed target: hit when they meet. Only this sport has one
+   on screen — the others draw theirs on the court, under the contact point the
+   player is auto-positioned onto. Here you put the bat where you like, so the
+   only thing left to tell you is when. */
+.timing-ring {
+  position: absolute;
+  bottom: 104px;
+  left: 50%;
+  width: 92px;
+  height: 92px;
+  margin-left: -46px;
+  border-radius: 50%;
+  pointer-events: none;
+  border: 2px solid rgba(150, 195, 230, 0.3);
+}
+.timing-ring[hidden] { display: none; }
+/* Grown by INSET, not by transform. A transform scales the border with the
+   circle, so a ring that starts wide starts as a fat blurry smear and thins as
+   it closes — which reads as the ring changing rather than approaching. */
+.timing-ring i {
+  position: absolute;
+  border-radius: 50%;
+  display: block;
+  border: 3px solid var(--accent);
+  opacity: 0.85;
+  inset: calc(var(--k, 0) * -62px - 3px);
+}
+.timing-ring.now { border-color: #fff; box-shadow: 0 0 26px rgba(255, 255, 255, 0.45); }
+.timing-ring.now i { border-color: #fff; opacity: 1; }
+

@@ -8,5 +8,6 @@
 
 export * from './fusion.js';
 export * from './swing.js';
+export * from './pingpong-swing.js';
 export * from './calibration.js';
 export * from './source.js';

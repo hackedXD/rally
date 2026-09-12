@@ -15,12 +15,15 @@ import {
   TUNING,
   parseMessage,
   quantQuat,
+  r,
   s2cSchema,
   type CueKind,
   type MatchPhase,
   type Quat,
   type Seat,
+  type SportId,
   type SwingInput,
+  type Vec3,
 } from '@rally/protocol';
 
 export interface Pairing {
@@ -41,7 +44,7 @@ export interface LiteState {
 
 export interface NetHandlers {
   onState(state: 'connecting' | 'open' | 'closed'): void;
-  onPaired(seat: Seat, opponent: string | null): void;
+  onPaired(seat: Seat, opponent: string | null, sport: SportId): void;
   onCue(kind: CueKind): void;
   onLite(lite: LiteState): void;
   onError(code: string, message: string): void;
@@ -60,6 +63,8 @@ export class ControllerNet {
   /** Latest pose, flushed on a timer rather than sent from the sensor callback. */
   private pendingPose: Quat | null = null;
   private pendingCt = 0;
+  private pendingReach = 0;
+  private pendingHold = false;
 
   constructor(
     private readonly url: string,
@@ -106,7 +111,7 @@ export class ControllerNet {
           this.clock.accept(msg.c0, msg.st);
           break;
         case 'PAIRED':
-          this.handlers.onPaired(msg.seat, msg.opponent);
+          this.handlers.onPaired(msg.seat, msg.opponent, msg.sport);
           break;
         case 'CUE':
           this.handlers.onCue(msg.kind);
@@ -131,9 +136,11 @@ export class ControllerNet {
   }
 
   /** Buffered; flushed on a timer so the sensor callback never touches the socket. */
-  pose(q: Quat, ct: number): void {
+  pose(q: Quat, ct: number, reach = 0, hold = false): void {
     this.pendingPose = q;
     this.pendingCt = ct;
+    this.pendingReach = reach;
+    this.pendingHold = hold;
   }
 
   private flushPose(): void {
@@ -143,6 +150,12 @@ export class ControllerNet {
       seq: this.seq++,
       ct: this.pendingCt,
       q: quantQuat(this.pendingPose),
+      // Table tennis only, and omitted rather than zeroed when it does not
+      // apply — a field that is always there and always 0 invites somebody to
+      // read it as "the hand is at neutral" rather than "not this sport".
+      ...(this.pendingReach !== 0 || this.pendingHold
+        ? { z: r(this.pendingReach), hold: this.pendingHold }
+        : {}),
     });
     this.pendingPose = null;
   }
@@ -157,6 +170,8 @@ export class ControllerNet {
       dir: s.dir,
       q: s.q,
       elev: s.elev,
+      ...(s.omega ? { omega: s.omega.map((v) => Math.round(v)) as Vec3 } : {}),
+      ...(s.vsw ? { vsw: s.vsw.map((v) => r(v, 2)) as Vec3 } : {}),
     });
   }
 

@@ -25,11 +25,11 @@ That plays the whole game with a mouse — no phone required. For the real thing
 
 | | |
 |---|---|
-| **Sports** | Pickleball, table tennis and badminton, sharing one code path — three different courts, three different swings. Bowling ships as a compiling interface stub — see [Adding a sport](#adding-a-sport). |
+| **Sports** | Pickleball and badminton share one code path — two different courts, two different swings. Table tennis has its own engine: a regulation table, a ball that carries spin, and a bat with a position you have to put on the ball. Bowling ships as a compiling interface stub — see [Adding a sport](#adding-a-sport). |
 | **Controllers** | An iPhone held like a paddle, or a mouse. Both speak the identical protocol; the server cannot tell them apart. |
 | **Opponent** | Another human across the internet, or a built-in bot with a difficulty dial. |
 | **Commentary** | Works with no API keys at all. Add a Gemini key and an ElevenLabs key and the same pipeline upgrades in place. |
-| **Tests** | 99 covering the physics, the shot solver, sensor fusion, the protocol, the commentary, and a full match over real WebSockets. |
+| **Tests** | 140 covering both physics engines, the shot solver, the spin model, sensor fusion, the protocol, the commentary, and full matches over real WebSockets. |
 
 ---
 
@@ -252,10 +252,11 @@ match loop runs, so the clearance it promises is the clearance the ball gets.
 packages/
   protocol/     THE CONTRACT. Types, Zod schemas, tuning, clock, maths.
   sim/          Pure simulation. No I/O, no clock, no unseeded randomness.
+    pingpong/   Table tennis: spin, a real table, a bat you have to aim.
   motion/       Pure sensor fusion and swing detection. Testable offline.
 apps/
   server/       Fastify + ws + rooms + net loop + commentary
-  controller/   Phone web app (vanilla TS, 23 KB gzipped)
+  controller/   Phone web app (vanilla TS, 25 KB gzipped)
   display/      Laptop/iPad web app (React Three Fiber)
 tools/
   mocks/        Stand-ins for every workstream, emitting real protocol messages
@@ -297,23 +298,22 @@ Bot-vs-bot, at the shipped defaults:
 | | Match | Rally | Errors |
 |---|---|---|---|
 | Pickleball | ~110 s | 4.6 shots | whiffs, net, out, unreturned |
-| Table tennis | ~78 s | 3.6 shots | ditto, faster |
+| Table tennis | ~105 s | 2.9 shots | unreturned, net, double bounce |
 
 ---
 
 ## Adding a sport
 
-One file. Pickleball and table tennis differ only in constants and scoring, and run
-the same code path:
+One file, for a sport the shared engine can express:
 
 ```ts
-export const tabletennis: SportModule = {
-  id: 'tabletennis',
-  court:   { length: 7.2, width: 3.3, netHeight: 0.34, ... },
-  ball:    { radius: 0.05, restitution: 0.86, dragK: 0.042, ... },
-  strike:  { windowMs: 115, contactHeight: 0.34, flightScale: 0.6, ... },
+export const pickleball: SportModule = {
+  id: 'pickleball',
+  court:   { length: 13.41, width: 6.1, netHeight: 0.86, ... },
+  ball:    { radius: 0.037, restitution: 0.62, dragK: 0.038, ... },
+  strike:  { windowMs: 150, contactHeight: 0.78, flightScale: 1.0, ... },
   scoring: rallyToSeven,
-  persona: { energy: 0.95, jargon: ['chop', 'loop', 'the pips'] },
+  persona: { energy: 0.85, jargon: ['the kitchen', 'a dink', 'third shot drop'] },
   classifyEvents: rallyEvents,
 };
 ```
@@ -338,6 +338,32 @@ traded against how awkward the contact height is
 (`TUNING.strike.contactComfortBias`). Take the first legal contact instead and both
 players end up crowded on the net playing a thirteen-metre sport in two metres.
 
+**Table tennis is where it stopped being enough entirely.** It does not run on the
+shared engine and its `SportModule` is mostly a description of a sport simulated
+elsewhere — see [`packages/sim/src/pingpong/`](packages/sim/src/pingpong/). Three
+things forced that, and none of them is a value a sport module could be handed:
+
+- **The ball carries spin.** Angular velocity, Magnus curve in flight, and one
+  Coulomb friction model shared by the table, the net and the bat — so a loop dips,
+  a chop floats and sits up, and a sidespin brush bends the bounce, none of them as
+  special cases. The shared engine's ball is a point with drag and a restitution
+  multiply, which is all the other two need.
+- **The bat has a position you have to put on the ball.** Everywhere else the
+  player auto-positions onto a predicted contact and the only question is timing.
+  Here the bat's position comes from the phone's orientation across a 1.35 m span,
+  and the ball meets a real disc with a real face — so a ball on your backhand side
+  has to be played with a backhand, and touching it with a stationary bat deflects
+  it weakly and probably into the net.
+- **The table is the real thing.** 2.74 m, not the old 7.2 m scale-up. Scaling a
+  court buys reaction time only while the player is auto-positioned onto the ball;
+  track a real bat and a bigger table just means you cannot reach. The room is
+  bought with gravity instead — 3.5 m/s², which lowers the speed a shot needs to
+  clear the net rather than moving the net further away.
+
+The seam is [`MatchEngine`](packages/sim/src/match.ts): a room drives one of those
+and never asks which. Everything downstream — snapshots, events, commentary,
+replays — is identical either way.
+
 Bowling is the other honest test: it is not rally-based, so it cannot route through
 the rally loop at all. [`packages/sim/src/sports/bowling.ts`](packages/sim/src/sports/bowling.ts)
 ships the `TurnController` seam it would hang from — typed, compiling, and
@@ -349,14 +375,21 @@ Bot against bot at skill 0.55, six seeds each:
 
 | | shots/rally | match | contact | rallies end on |
 |---|---|---|---|---|
-| Pickleball | 8.5 | 215 s | 0.64 m, below the net | net 49%, double bounce 42%, out 9% |
-| Table tennis | 5.6 | 99 s | 1.17 m, just over the net | net 60%, out 40% |
-| Badminton | 9.7 | 107 s | 2.07 m, three quarters overhead | grounded 61%, net 38% |
+| Pickleball | 9.0 | 186 s | 0.63 m, below the net | net 52%, double bounce 31%, out 16% |
+| Table tennis | 2.9 | 105 s | 0.99 m, just over the table | unreturned 59%, net 21%, double bounce 10% |
+| Badminton | 11.3 | 116 s | 1.94 m, three quarters overhead | grounded 61%, net 37%, out 2% |
 
 Badminton is deliberately the most forgiving of the three on timing and aim. A
 shuttle is met anywhere between the ankles and full stretch overhead, which needs
-more latitude than a ball arriving at a fixed height on a table — and too little
-of it reads as overheads that never register.
+more latitude than a ball arriving at a fixed height on a table — and too little of
+it reads as overheads that never register.
+
+Table tennis has the shortest rallies by some distance, and that is the cost of its
+bat having a position: everywhere else a ball you can see is a ball you can reach,
+so a rally ends when somebody mistimes it. Here it ends when somebody is not
+there — 59% of points are simply not returned. It also scores the real game, 11 and
+win by 2, rather than Rally's rally-to-7, which is why the match runs longer than
+the rally length suggests.
 
 ---
 

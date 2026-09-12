@@ -48,6 +48,14 @@ let sensors: SensorStream | null = null;
 let lite: LiteState | null = null;
 let seat: Seat = pairing?.seat ?? 0;
 let opponent: string | null = null;
+/**
+ * Which sport this room is playing, as of the last PAIRED.
+ *
+ * The phone only cares for one reason: table tennis runs a different swing
+ * detector. Everything else about the controller is sport-agnostic and stays
+ * that way.
+ */
+let sport = 'pickleball';
 let connState: 'connecting' | 'open' | 'closed' = 'connecting';
 let playerName = loadName();
 let muted = false;
@@ -111,6 +119,7 @@ function startCalibration(): void {
   screen = 'calibrating';
   // During calibration nothing is sent anywhere; the fusion just needs samples.
   sensors = startSensors({ onPose: noop, onSwing: noop });
+  sensors.setSport(sport);
   const calibrator = new Calibrator();
   let started = false;
   let signChecked = false;
@@ -205,9 +214,13 @@ function connect(): void {
       }
       renderPlay();
     },
-    onPaired: (s, opp) => {
+    onPaired: (s, opp, sportId) => {
       seat = s;
       opponent = opp;
+      // Which swing detector runs. Table tennis onsets on rotation and reports
+      // the wrist rate; everything else onsets on acceleration.
+      sport = sportId;
+      sensors?.setSport(sportId);
       renderPlay();
     },
     onCue: (kind) => {
@@ -248,8 +261,8 @@ function connect(): void {
   // attachment path, so the pose and swing handlers cannot drift apart.
   sensors?.stop();
   sensors = startSensors({
-    onPose: (q, t) => {
-      if (!paused) net?.pose(q, t);
+    onPose: (q, t, reach, hold) => {
+      if (!paused) net?.pose(q, t, reach, hold);
     },
     onSwing: (swing) => {
       if (paused) return;

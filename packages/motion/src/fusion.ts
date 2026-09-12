@@ -97,6 +97,9 @@ export class Fusion {
   /** Linear acceleration, yaw-corrected player frame, m/s². */
   private aPlayer: Vec3 = [0, 0, 0];
 
+  /** Latest rotation rate, paddle frame, deg/s. See `omegaDeg`. */
+  private omega: Vec3 = [0, 0, 0];
+
   get deviceQ(): Quat {
     return this.qDev;
   }
@@ -113,6 +116,23 @@ export class Fusion {
 
   get linearAccel(): Vec3 {
     return this.aPlayer;
+  }
+
+  /**
+   * Rotation rate in the PADDLE's own frame, deg/s.
+   *
+   * Table tennis needs this and nothing else does. A bat is swung by rotating
+   * the wrist, so the face's velocity is `v_linear + omega x arm` — and without
+   * the rotation term a brush across the ball generates no spin at all, which is
+   * most of that sport.
+   *
+   * Paddle frame, not device frame. `post` is what maps how the player happens
+   * to be holding the phone onto the canonical paddle axes, so a rate reported
+   * in device axes means something different for a phone held flat and one held
+   * edge-on. Undoing `post` is what makes the two the same.
+   */
+  get omegaDeg(): Vec3 {
+    return qrot(qconj(this.cal.post), this.omega);
   }
 
   get calibration(): Calibration {
@@ -132,6 +152,7 @@ export class Fusion {
     this.haveOrientation = false;
     this.lastT = null;
     this.aPlayer = [0, 0, 0];
+    this.omega = [0, 0, 0];
   }
 
   /** Orientation branch. Gravity-referenced, so it is the drift anchor. */
@@ -161,6 +182,10 @@ export class Fusion {
       const wx = (rr.beta ?? 0) * DEG;
       const wy = (rr.gamma ?? 0) * DEG;
       const wz = (rr.alpha ?? 0) * DEG;
+      // Kept raw, in degrees and device axes: the integration below wants
+      // radians, but a consumer asking "how fast is the wrist turning" wants the
+      // units the sensor reported. `omegaDeg` does the frame change.
+      this.omega = [rr.beta ?? 0, rr.gamma ?? 0, rr.alpha ?? 0];
       const mag = Math.hypot(wx, wy, wz);
       if (mag > TUNING.motion.gyroDeadzone) {
         // q_gyro <- normalize(q + 0.5 * q (x) (0, wx, wy, wz) * dt)

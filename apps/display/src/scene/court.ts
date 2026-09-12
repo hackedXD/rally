@@ -24,7 +24,10 @@ export interface CourtLook {
  */
 export const BALL_RADIUS: Record<SportId, number> = {
   pickleball: 0.037,
-  tabletennis: 0.05,
+  // A real 40 mm ball. Table tennis is drawn by `PingPongScene`, which carries
+  // its own copy of this — the entry stays so anything reading the record by
+  // sport gets a true number rather than the old scaled-up court's.
+  tabletennis: 0.02,
   badminton: 0.034,
   bowling: 0.108,
 };

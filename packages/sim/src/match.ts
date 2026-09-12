@@ -67,6 +67,14 @@ export interface TickInput {
   /** Latest paddle orientation per seat, from the controllers. */
   pose: Record<number, Quat | undefined>;
   connected: Record<number, boolean>;
+  /**
+   * How far forward each seat's hand is leaning, metres, and whether a stroke is
+   * in progress on that seat. Table tennis only — that engine tracks a real bat
+   * position, and these are the two things a pose alone cannot say. The original
+   * engine ignores both.
+   */
+  reach?: Record<number, number | undefined>;
+  holdPose?: Record<number, boolean | undefined>;
   /** Seats that pressed SERVE since the last tick. */
   serveRequests: Seat[];
   /**
@@ -91,6 +99,42 @@ export interface Simulation {
   reset(sport: SportModule): void;
 }
 
+/**
+ * The full surface a room drives a match through.
+ *
+ * `Match` and `PingPongMatch` are two different simulations — one auto-positions
+ * players and judges a timing window, the other tracks a bat you have to put on
+ * the ball — and the room does not want to know which it is holding. This is the
+ * seam that lets it not care.
+ */
+export interface MatchEngine extends Simulation {
+  /**
+   * True when the engine steps its own bots inside `step`. The original engine
+   * does not: its bots read the telegraph from outside and feed swings back in,
+   * which is what makes them exercise the human strike path. Table tennis has no
+   * such window to read, so its bot plays the rules directly.
+   */
+  readonly drivesOwnBots: boolean;
+  readonly phase: MatchPhase;
+  readonly rally: number;
+  refreshParams(): void;
+  setNames(names: [string, string]): void;
+  setBot(seat: Seat, bot: boolean, skill?: number): void;
+  start(t: Millis): void;
+  getStats(): MatchStats;
+  getScore(): ScoreState;
+  getTelegraph(): StrikeTelegraph | null;
+  getPrediction(): ContactPrediction | null;
+  getDifficulty(): number;
+  getParams(): SimParams;
+  getBall(): BallBody | null;
+  getPlayers(): PlayerState[];
+  getWinner(): Seat | null;
+  getHistory(): readonly { t: Millis; p: Vec3; v: Vec3 }[];
+  summary(): string[];
+  currentSnapshot(): Snapshot;
+}
+
 interface ArmedStrike {
   seat: Seat;
   swing: SwingInput;
@@ -108,7 +152,10 @@ export interface MatchOptions {
 
 const LANE = [0, 1] as const;
 
-export class Match implements Simulation {
+export class Match implements MatchEngine {
+  /** Its bots are driven by the room, against the telegraph. See `MatchEngine`. */
+  readonly drivesOwnBots = false;
+
   sport: SportModule;
   tick = 0;
   t: Millis = 0;
@@ -221,7 +268,8 @@ export class Match implements Simulation {
     this.players[1].name = names[1];
   }
 
-  setBot(seat: Seat, bot: boolean): void {
+  /** `skill` is accepted for interface parity; this engine's bots carry their own. */
+  setBot(seat: Seat, bot: boolean, _skill?: number): void {
     const p = this.players[seat];
     if (p) p.bot = bot;
   }

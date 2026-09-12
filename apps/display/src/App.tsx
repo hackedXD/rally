@@ -21,12 +21,15 @@ import { audio } from './audio/engine.js';
 import { RallyClient, defaultWsUrl, type RoomView } from './net/client.js';
 import { VirtualController, type VirtualState } from './net/virtual.js';
 import { Scene } from './scene/Scene.jsx';
+import { PingPongScene } from './scene/PingPongScene.jsx';
+import type { PpViewName } from './scene/pingpong.js';
 import { COURTS } from './scene/courts.js';
 import { feel } from './store/feel.js';
 import { useGame } from './store/useGame.js';
 import { EndCard } from './ui/EndCard.jsx';
 import { Hud } from './ui/Hud.jsx';
 import { Lobby } from './ui/Lobby.jsx';
+import { TimingRing } from './ui/TimingRing.jsx';
 import { TunePanel } from './ui/TunePanel.jsx';
 import { VirtualPanel } from './ui/VirtualPanel.jsx';
 
@@ -35,6 +38,40 @@ export function App() {
   const [virtualState, setVirtualState] = useState<VirtualState | null>(null);
   const virtual = useRef<VirtualController | null>(null);
   const canvasWrap = useRef<HTMLDivElement>(null);
+  /**
+   * Table tennis framing, remembered across reloads.
+   *
+   * First person is the default and the one the game is designed around; the
+   * wide view is for a screen somebody is watching rather than playing on. Only
+   * this sport has the choice — the others are already framed from a broadcast
+   * position, because at 13 m that is the only framing that works.
+   */
+  const [ppView, setPpView] = useState<PpViewName>(() => {
+    try {
+      return localStorage.getItem('rally.ppview') === 'wide' ? 'wide' : 'first';
+    } catch {
+      return 'first';
+    }
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'v' && e.key !== 'V') return;
+      // Never while typing a name into the lobby.
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+      setPpView((v) => {
+        const next = v === 'first' ? 'wide' : 'first';
+        try {
+          localStorage.setItem('rally.ppview', next);
+        } catch {
+          /* private mode */
+        }
+        return next;
+      });
+    };
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, []);
 
   /**
    * One client, constructed but NOT connected here.
@@ -59,8 +96,12 @@ export function App() {
         g.setNames(names);
         g.setSport(sport);
         g.setScreen('playing');
-        g.showBanner(`${names[0]} vs ${names[1]}`, 'First to 7, win by 2', 2400);
+        // Table tennis scores the real game. Every other sport here plays
+        // rally-to-7, which is the locked scoring decision for the shared engine.
+        const target = sport === 'tabletennis' ? 11 : 7;
+        g.showBanner(`${names[0]} vs ${names[1]}`, `First to ${target}, win by 2`, 2400);
         feel.reset();
+        audio.setSport(sport);
         audio.startCrowd();
       },
       onEvent: (e) => handleEvent(e),
@@ -311,6 +352,8 @@ export function App() {
   const ownSeat: Seat = store.room?.seat ?? 0;
   const court = COURTS[store.sport as SportId] ?? COURTS.pickleball;
   const playing = store.screen === 'playing' || store.screen === 'over';
+  // Table tennis is drawn by its own renderer — see PingPongScene for why.
+  const pingpong = store.sport === 'tabletennis';
 
   return (
     <div className={`stage${virtualState && playing ? ' has-vc' : ''}`}>
@@ -321,11 +364,16 @@ export function App() {
           gl={{ antialias: true, powerPreference: 'high-performance' }}
           camera={{ fov: 35, near: 0.1, far: 200 }}
         >
-          <Scene client={client} court={court} sport={store.sport} ownSeat={ownSeat} />
+          {pingpong ? (
+            <PingPongScene client={client} ownSeat={ownSeat} view={ppView} />
+          ) : (
+            <Scene client={client} court={court} sport={store.sport} ownSeat={ownSeat} />
+          )}
         </Canvas>
       </div>
 
       {playing && <Hud client={client} ownSeat={ownSeat} />}
+      {playing && pingpong && <TimingRing client={client} ownSeat={ownSeat} />}
       {!playing && <Lobby client={client} onStart={startMatch} onPlayHere={playHere} />}
       {store.screen === 'over' && (
         <EndCard

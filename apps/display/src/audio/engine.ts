@@ -41,6 +41,8 @@ export class AudioEngine {
   private master: GainNode | null = null;
   private music: GainNode | null = null;
   private sfx: GainNode | null = null;
+  /** Which sport's voices `sfxPlay` uses. See SFX_TABLETENNIS. */
+  private sport = 'pickleball';
   private commentary: GainNode | null = null;
 
   private buffers = new Map<string, AudioBuffer>();
@@ -398,6 +400,11 @@ export class AudioEngine {
    * players will not perceive the difference between them — and five generated
    * tones read as intentional where five free samples read as a scramble.
    */
+  /** Called when a match starts, so contact sounds match the sport being played. */
+  setSport(id: string): void {
+    this.sport = id;
+  }
+
   sfxPlay(kind: SfxKind, gain = 1): void {
     if (!this.ctx || !this.sfx || this.muted) return;
     const ctx = this.ctx;
@@ -405,7 +412,8 @@ export class AudioEngine {
     const out = ctx.createGain();
     out.connect(this.sfx);
 
-    const spec = SFX[kind] ?? SFX.rally;
+    const table = this.sport === 'tabletennis' ? SFX_TABLETENNIS : SFX;
+    const spec = table[kind] ?? table.rally;
     out.gain.value = spec.gain * gain;
 
     // Body: a short pitched thud.
@@ -517,6 +525,40 @@ interface SfxSpec {
   noiseFreq: number;
   noiseDecay: number;
 }
+
+/**
+ * Table tennis, whose two contacts have to be told apart without looking.
+ *
+ * Half of knowing where the ball is in that sport is hearing it, and the shared
+ * table below gets it backwards for a table: its `bounce` is a low dull thud,
+ * which is what a pickleball on a court sounds like and nothing like a hollow
+ * celluloid ball on a hard sheet. Transplanted from `pickle`:
+ *
+ *   bat   — celluloid on RUBBER over wood. Dense, damped, dark: mostly noise
+ *           with a low thud of body under it, and no ring at all.
+ *   table — a hollow ball on a hard sheet. Bright, pitched, hollow — a tok with
+ *           almost no body, well over an octave above the bat.
+ *
+ * The same burst shaped two ways rather than two arbitrary beeps, so they belong
+ * to one world while never being mistaken for each other.
+ */
+const SFX_TABLETENNIS: Record<string, SfxSpec> = {
+  serve:  { freq: 250, sweep: 0.55, decay: 0.05, wave: 'triangle', gain: 0.5, noise: 0.34, noiseFreq: 950, noiseDecay: 0.07 },
+  drive:  { freq: 240, sweep: 0.55, decay: 0.05, wave: 'triangle', gain: 0.6, noise: 0.44, noiseFreq: 1150, noiseDecay: 0.075 },
+  smash:  { freq: 260, sweep: 0.5,  decay: 0.06, wave: 'triangle', gain: 0.8, noise: 0.6,  noiseFreq: 1400, noiseDecay: 0.08 },
+  // A graze — the ball met the bat with nobody swinging at it. Deliberately
+  // almost nothing: the crack's body with none of its attack. The full crack
+  // made every ball that brushed the bat sound like a drive somebody meant.
+  dink:   { freq: 170, sweep: 0.6,  decay: 0.055, wave: 'sine',    gain: 0.3, noise: 0.06, noiseFreq: 700,  noiseDecay: 0.02 },
+  lob:    { freq: 220, sweep: 0.6,  decay: 0.06, wave: 'triangle', gain: 0.4, noise: 0.24, noiseFreq: 900,  noiseDecay: 0.06 },
+  rally:  { freq: 230, sweep: 0.55, decay: 0.05, wave: 'triangle', gain: 0.55, noise: 0.4, noiseFreq: 1050, noiseDecay: 0.075 },
+  bounce: { freq: 1400, sweep: 0.8, decay: 0.06, wave: 'sine',     gain: 0.34, noise: 0.16, noiseFreq: 3000, noiseDecay: 0.02 },
+  net:    { freq: 170, sweep: 0.55, decay: 0.12, wave: 'sawtooth', gain: 0.45, noise: 0.25, noiseFreq: 500, noiseDecay: 0.1 },
+  // The floor is neither: dull, low, and no pitch worth hearing.
+  out:    { freq: 130, sweep: 0.55, decay: 0.1,  wave: 'sine',     gain: 0.3, noise: 0.08, noiseFreq: 600,  noiseDecay: 0.04 },
+  whiff:  { freq: 260, sweep: 0.35, decay: 0.22, wave: 'sine',     gain: 0.3, noise: 0.45, noiseFreq: 700,  noiseDecay: 0.2 },
+  point:  { freq: 620, sweep: 1.4,  decay: 0.22, wave: 'triangle', gain: 0.45, noise: 0.06, noiseFreq: 1800, noiseDecay: 0.04 },
+};
 
 /** One distinct sound per shot silhouette. */
 const SFX: Record<string, SfxSpec> = {

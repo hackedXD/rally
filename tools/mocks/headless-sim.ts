@@ -13,11 +13,13 @@
 import {
   Bot,
   Match,
+  PingPongMatch,
   emptyTickInput,
   getSport,
   makeRng,
   predictContact,
   type BotView,
+  type MatchEngine,
 } from '@rally/sim';
 import { TUNING, type Seat, type SportId } from '@rally/protocol';
 
@@ -36,15 +38,17 @@ const quiet = has('quiet');
 const trace = has('trace');
 
 const sport = getSport(sportId);
-const match = new Match({
-  sport,
-  seed,
-  names: ['Ace', 'Bolt'],
-  bots: [true, true],
-});
+// Table tennis runs its own engine, and that engine steps its own bots — there is
+// no telegraph for an outside bot to read. See `MatchEngine`.
+const match: MatchEngine =
+  sport.id === 'tabletennis'
+    ? new PingPongMatch({ sport, seed, names: ['Ace', 'Bolt'], bots: [true, true] })
+    : new Match({ sport, seed, names: ['Ace', 'Bolt'], bots: [true, true] });
+match.setBot(0, true, skill0);
+match.setBot(1, true, skill1);
 
 const rng = makeRng(seed ^ 0x9e3779b9);
-const bots: Bot[] = [new Bot(0, rng, skill0), new Bot(1, rng, skill1)];
+const bots: Bot[] = match.drivesOwnBots ? [] : [new Bot(0, rng, skill0), new Bot(1, rng, skill1)];
 
 const DT = 1 / TUNING.net.tickHz;
 let t = 0;
@@ -133,9 +137,9 @@ for (let i = 0; i < 60 * 60 * 5 && match.phase !== 'gameover'; i++) {
       case 'hit':
         console.log(
           `  ${C.g('hit')}   ${who.padEnd(5)} ${String(d.shot).padEnd(6)} ` +
-            `${String(d.speed).padStart(5)} m/s  q=${String(d.quality).padStart(4)} ` +
+            `${String(d.speed).padStart(5)} m/s  q=${String(d.quality ?? '—').padStart(4)} ` +
             `${d.assisted ? C.dim('(assisted)') : ''} ${C.dim(`r${d.rallyLength}`)} ` +
-            `${C.dim(`arr ${d.arrivalSpeed} diff ${d.difficulty} T${d.flightT}`)}` +
+            `${C.dim(`arr ${d.arrivalSpeed ?? '—'} diff ${d.difficulty} T${d.flightT ?? '—'}`)}` +
             `${d.clearsNet === false ? C.r(' WILL-CLIP') : ''}`,
         );
         break;
@@ -163,7 +167,7 @@ for (let i = 0; i < 60 * 60 * 5 && match.phase !== 'gameover'; i++) {
           C.b(
             `POINT ${d.winnerName} — ${d.scoreAfter}   ` +
               `${d.rallyLength} shots in ${(Number(d.rallyDurationMs) / 1000).toFixed(1)}s ` +
-              `(${d.reason}, deciding: ${d.decidingShot})\n`,
+              `(${d.reason}, deciding: ${d.decidingShot ?? '—'})\n`,
           ),
         );
         break;

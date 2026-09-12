@@ -95,6 +95,7 @@ function CopyButton({ text, label = 'Copy invite link' }: { text: string; label?
 
 export function Lobby({ client, onStart, onPlayHere }: Props) {
   const room = useGame((s) => s.room);
+  const sport = useGame((s) => s.sport);
   const sports = useGame((s) => s.sports);
   const status = useGame((s) => s.lobbyStatus);
   const screen = useGame((s) => s.screen);
@@ -257,14 +258,41 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
                   No phone? Hit <b>Play here</b> — move the mouse to aim, hold{' '}
                   <kbd>click</kbd> or <kbd>space</kbd> to wind up, release to swing.
                 </li>
-                <li>
-                  The ring on the court closes at the moment to hit. A thinner ring
-                  means a harder ball.
-                </li>
-                <li>
-                  Rally scoring to 7, win by 2. <kbd>M</kbd> mutes the commentator,{' '}
-                  <kbd>T</kbd> opens the tuning panel.
-                </li>
+                {/*
+                  * Table tennis is a different game and needs a different sentence.
+                  * Everywhere else you are auto-positioned onto the ball and the
+                  * only question is timing — which is exactly what the ring
+                  * teaches. Here you have to put the bat where the ball is, and the
+                  * wing you play it with counts.
+                  */}
+                {sport === 'tabletennis' ? (
+                  <>
+                    <li>
+                      The bat goes where you point the phone. Tilt to reach across
+                      and up; a ball on your backhand side needs a backhand.
+                    </li>
+                    <li>
+                      Brush up the back of the ball for topspin, cut down it for
+                      backspin. Both bend the flight, and both are worth learning.
+                    </li>
+                    <li>
+                      Real rules: 11 points, win by 2. <kbd>V</kbd> switches between
+                      standing at the table and the wide view, <kbd>M</kbd> mutes the
+                      commentator, <kbd>T</kbd> opens the tuning panel.
+                    </li>
+                  </>
+                ) : (
+                  <>
+                    <li>
+                      The ring on the court closes at the moment to hit. A thinner
+                      ring means a harder ball.
+                    </li>
+                    <li>
+                      Rally scoring to 7, win by 2. <kbd>M</kbd> mutes the
+                      commentator, <kbd>T</kbd> opens the tuning panel.
+                    </li>
+                  </>
+                )}
               </ol>
             </div>
           </div>

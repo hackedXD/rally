@@ -64,6 +64,9 @@ export const c2sSchema = z.discriminatedUnion('t', [
     seq: num,
     ct: num,
     q: z.tuple([num, num, num, num]),
+    // Table tennis: forward lean, metres, and whether a stroke is in progress.
+    z: num.min(-2).max(2).optional(),
+    hold: z.boolean().optional(),
   }),
   z.object({
     t: z.literal('SWING'),
@@ -73,6 +76,9 @@ export const c2sSchema = z.discriminatedUnion('t', [
     dir: vec3,
     q: quat,
     elev: num.min(-Math.PI).max(Math.PI),
+    // Table tennis: wrist rotation and hand velocity at peak. See SwingInput.
+    omega: vec3.optional(),
+    vsw: vec3.optional(),
   }),
   z.object({ t: z.literal('BUTTON'), button: z.enum(['serve', 'mute']) }),
   z.object({ t: z.literal('CALIBRATED'), yawOffset: num }),

@@ -1,17 +1,19 @@
 import {
   Bot,
   Match,
+  PingPongMatch,
   emptyTickInput,
   getSport,
   makeRng,
   type BotView,
+  type MatchEngine,
 } from '@rally/sim';
 import { TUNING, type GameEvent, type Seat, type SportId, type Snapshot } from '@rally/protocol';
 
 export const DT = 1 / TUNING.net.tickHz;
 
 export interface PlayResult {
-  match: Match;
+  match: MatchEngine;
   snapshots: Snapshot[];
   seconds: number;
   events: GameEvent[];
@@ -28,10 +30,18 @@ export function playMatch(opts: {
 }): PlayResult {
   const sport = getSport(opts.sport ?? 'pickleball');
   const seed = opts.seed ?? 1234;
-  const match = new Match({ sport, seed, names: ['Ace', 'Bolt'], bots: [true, true] });
-  const rng = makeRng(seed ^ 0x9e3779b9);
   const skill = opts.skill ?? 0.6;
-  const bots: Bot[] = [new Bot(0, rng, skill), new Bot(1, rng, skill)];
+  // Table tennis runs a different engine, and that engine steps its own bots —
+  // there is no telegraph for an outside bot to read. Everything else about a
+  // headless match is identical, which is the point of `MatchEngine`.
+  const match: MatchEngine =
+    sport.id === 'tabletennis'
+      ? new PingPongMatch({ sport, seed, names: ['Ace', 'Bolt'], bots: [true, true] })
+      : new Match({ sport, seed, names: ['Ace', 'Bolt'], bots: [true, true] });
+  match.setBot(0, true, skill);
+  match.setBot(1, true, skill);
+  const rng = makeRng(seed ^ 0x9e3779b9);
+  const bots: Bot[] = match.drivesOwnBots ? [] : [new Bot(0, rng, skill), new Bot(1, rng, skill)];
   const snapshots: Snapshot[] = [];
   const events: GameEvent[] = [];
   let t = 0;

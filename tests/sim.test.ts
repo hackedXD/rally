@@ -128,8 +128,12 @@ describe('simulation invariants (W3 exit criteria)', () => {
 // ── The shot model ────────────────────────────────────────────────────────────
 
 describe('shot model', () => {
+  // Badminton, not table tennis: this exercises the SHARED shot model, and table
+  // tennis no longer runs on it. Its `strike` block still exists — `SportModule`
+  // requires one — but nothing reads most of it, so asserting against it would
+  // be testing a combination that never ships.
   const shotFor = (
-    sportId: 'pickleball' | 'tabletennis',
+    sportId: 'pickleball' | 'badminton',
     seat: Seat,
     contactZ: number,
     swing: Partial<SwingInput>,
@@ -162,16 +166,22 @@ describe('shot model', () => {
   };
 
   it('clears the net and lands near the target, from both ends of both courts', () => {
-    for (const sportId of ['pickleball', 'tabletennis'] as const) {
+    for (const sportId of ['pickleball', 'badminton'] as const) {
       for (const seat of [0, 1] as Seat[]) {
         const sign = seatSign(seat);
         const half = getSport(sportId).court.length / 2;
+        // Swing speeds scaled to the sport's own return band, not pinned to
+        // pickleball's. A 2.2 m/s dink from a badminton baseline is not a soft
+        // shot, it is a shuttle that lands 6 m short of the net — asserting it
+        // clears would be asserting the physics is wrong.
+        const { minReturn: lo, maxReturn: hi } = getSport(sportId).strike;
+        const at = (k: number): number => lo + (hi - lo) * k;
         for (const frac of [0.95, 0.6, 0.25]) {
           for (const swing of [
-            { speed: 2.2, elev: 0.3 }, // dink
-            { speed: 5.0, elev: 0.2 }, // rally
-            { speed: 8.5, elev: 0.03 }, // drive
-            { speed: 4.5, elev: 0.6 }, // lob
+            { speed: at(0.05), elev: 0.3 }, // dink
+            { speed: at(0.3), elev: 0.2 }, // rally
+            { speed: at(0.75), elev: 0.03 }, // drive
+            { speed: at(0.25), elev: 0.6 }, // lob
           ]) {
             const contactZ = sign * half * frac;
             const { shot, probe, sport } = shotFor(sportId, seat, contactZ, swing);
