@@ -86,6 +86,24 @@ export type C2S =
   | { t: 'BUTTON'; button: 'serve' | 'mute' }
   | { t: 'CALIBRATED'; yawOffset: number }
   | { t: 'READY'; name: string }
+  /**
+   * This bat is held at the court and re-centred, once per point.
+   *
+   * Distinct from READY, which is the lobby's "I am here, my name is X" and
+   * fires once a session. This one fires between every point and is the gate on
+   * the next serve — see `Room.serveGate`. The phone re-zeros its own yaw on the
+   * same tap, which is the actual reason the beat exists: gyro heading drifts,
+   * and being TOLD where the court is beats every way of guessing it.
+   */
+  | { t: 'READY_POINT' }
+  /**
+   * Play again, from the phone.
+   *
+   * The display can already ask for this. You are as likely to be holding the
+   * phone as looking at the screen when a match ends, and walking back to the
+   * laptop to press the only rematch button is the whole reason this exists.
+   */
+  | { t: 'REMATCH' }
   | { t: 'PAUSE'; paused: boolean };
 
 // ── display → server ──────────────────────────────────────────────────────────
@@ -145,6 +163,21 @@ export type S2C =
       you: Seat;
       opponent: string | null;
       gamePoint: boolean;
+      /**
+       * Who has readied up for the next point, seat-indexed.
+       *
+       * Per SEAT, not per player-who-tapped: a bot seat reads ready so the phone
+       * can draw two lamps without knowing anything about bots.
+       */
+      ready: [boolean, boolean];
+      /**
+       * Which seats have a phone on them at all, seat-indexed.
+       *
+       * "Has not tapped yet" and "nobody is standing there" are identical in
+       * `ready` and need different words on screen: one is waiting for a tap,
+       * the other for a QR scan.
+       */
+      seated: [boolean, boolean];
     }
   | { t: 'ERROR'; code: string; message: string };
 

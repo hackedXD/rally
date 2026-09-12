@@ -286,8 +286,19 @@ export class PingPongMatch implements Simulation {
 
     this.expireAnims();
     this.checkStall();
-    this.stepBots();
-    this.autoServe();
+    // Nobody serves until both bats are ready, the bot included: it has no
+    // gyroscope to re-centre, but a bot that served into a player still squaring
+    // up would defeat the entire point of the gate. Its stroke state is reset
+    // while it waits so it does not resume a swing it began before the gate
+    // closed. `advance` still runs, so the bats keep tracking the phones.
+    const gateOpen =
+      !input.serveGate || this.t - this.phaseT > TUNING.serve.autoServeAfterMs;
+    if (!gateOpen && this.state.phase === 'serve') {
+      for (const seat of LANE) this.bots[seat].state = newPpBot();
+    } else {
+      this.stepBots();
+      this.autoServe();
+    }
     this.advance();
     this.retelegraph();
     this.recordHistory();

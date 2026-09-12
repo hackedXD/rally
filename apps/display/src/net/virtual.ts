@@ -89,9 +89,21 @@ export class VirtualController {
     };
     ws.onmessage = (ev) => {
       try {
-        const msg = JSON.parse(String(ev.data)) as { t: string; yourServe?: boolean };
+        const msg = JSON.parse(String(ev.data)) as {
+          t: string;
+          yourServe?: boolean;
+          ready?: boolean[];
+          you?: number;
+        };
         if (msg.t === 'LITE') {
           this.state.yourServe = Boolean(msg.yourServe);
+          // Ready up on this seat's behalf, every point. The ready-up exists to
+          // re-anchor a phone's drifting gyro heading before the next serve;
+          // a mouse has no heading to drift, so there is nothing here to hold
+          // the gate up for — and a seat that never tapped would stop the match
+          // for the player who is using a phone properly.
+          const me = msg.you === 1 || msg.you === 3 ? 1 : 0;
+          if (msg.ready && !msg.ready[me]) ws.send(JSON.stringify({ t: 'READY_POINT' }));
           this.emit();
         }
       } catch {

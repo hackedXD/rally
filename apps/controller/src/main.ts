@@ -17,6 +17,7 @@ import { Calibrator } from '@rally/motion';
 import {
   NAME_MAX,
   TUNING,
+  lane,
   filterName,
   loadName,
   saveName,
@@ -86,6 +87,16 @@ let paused = false;
 let swingCount = 0;
 let lastSwingSpeed = 0;
 let calibration: ReturnType<Calibrator['finish']> | null = null;
+/**
+ * Have I readied up for this point?
+ *
+ * Optimistic, then overwritten by whatever the server says a frame later — a
+ * lamp that waits for a round trip feels like a button that missed. Readiness
+ * itself belongs to the SERVER: it clears at the end of every point, and a phone
+ * that decided for itself when to re-arm would drift out of step with the screen
+ * the player is actually looking at.
+ */
+let localReady = false;
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
 
@@ -252,17 +263,14 @@ function connect(): void {
     },
     onLite: (l) => {
       const wasServe = lite?.yourServe;
-      const wasPhase = lite?.phase;
       lite = l;
       if (l.yourServe && !wasServe) haptics.play('serve');
-      // Re-zero yaw at every serve. Gyro yaw drifts and iOS `alpha` has no
-      // absolute reference to pull it back, so without this the paddle slowly
-      // stops aiming where the player is pointing — the single most common
-      // complaint, and it costs nothing to fix here.
-      if (l.phase === 'serve' && wasPhase !== 'serve' && sensors) {
-        calibration = sensors.fusion.rezeroYaw();
-        net?.calibrated(sensors.fusion.yawOffset);
-      }
+      // The server owns readiness; this is where the optimistic lamp is
+      // corrected. Yaw is re-zeroed by the READY tap rather than on the serve
+      // transition: re-centring on a phone that happens to be pointing at the
+      // floor teaches the game that the floor is the far end of the court, and
+      // that is drift you can feel arriving.
+      localReady = l.ready[lane(seat)];
       renderPlay();
     },
     onError: (code, message) => {
@@ -322,6 +330,19 @@ function draw(): void {
   const theirs = lite ? lite.points[seat === 0 ? 1 : 0] : 0;
   const yourServe = lite?.yourServe ?? false;
   const phase = lite?.phase ?? 'lobby';
+  // Seats are numbered for doubles; the two-element wire tuples are indexed by
+  // LANE, which is the side of the net. Everything below reads one of those.
+  const me = lane(seat);
+  const them = me === 0 ? 1 : 0;
+  const iAmReady = localReady || (lite?.ready[me] ?? false);
+  const theyReady = lite?.ready[them] ?? false;
+  // Between points, and at the start of one. Both are the same beat to a player:
+  // the ball is dead, put the bat up.
+  const readyBeat = phase === 'serve' || phase === 'point';
+  const bothReady = iAmReady && theyReady;
+  // Nobody is standing there yet, which needs different words from "has not
+  // tapped": one is waiting for a tap, the other for a QR scan.
+  const theySeated = lite?.seated[them] ?? false;
 
   const cueAge = lastCue ? performance.now() - lastCue.at : 1e9;
   const cueClass =
@@ -369,9 +390,9 @@ function draw(): void {
       <div class="hint">${swingHint(phase, yourServe)}</div>
     </div>
 
-    <button class="serve-btn" id="serve" ${yourServe && phase === 'serve' ? '' : 'hidden'}>
-      SERVE
-    </button>
+    ${readyBeat ? lampsHtml(iAmReady, theyReady, theySeated) : ''}
+
+    ${primaryHtml(phase, yourServe, readyBeat, iAmReady, theyReady, bothReady, theySeated)}
 
     <div class="foot">
       <span>${swingCount} swings</span>
@@ -387,6 +408,13 @@ function draw(): void {
     net?.serve();
     haptics.play('serve');
   });
+  app.querySelector('#ready')?.addEventListener('click', readyUp);
+  app.querySelector('#rematch')?.addEventListener('click', () => {
+    net?.rematch();
+    localReady = false;
+    haptics.play('serve');
+    renderPlay();
+  });
   app.querySelector('#mute')?.addEventListener('click', () => {
     muted = !muted;
     haptics.enabled = !muted;
@@ -395,6 +423,81 @@ function draw(): void {
   });
 
   if (paused) renderPausedOverlay();
+}
+
+/**
+ * Ready up: you tell it where the court is, holding the phone at it.
+ *
+ * Two jobs on one tap, and they are bolted together on purpose. The handshake —
+ * nobody serves until both bats are up — is a beat players already expect from
+ * every racket sport. The re-centring is a thing they should never have to think
+ * about. Putting the second inside the first means the yaw drift is overwritten
+ * at the start of every single point by somebody doing something they were going
+ * to do anyway.
+ */
+function readyUp(): void {
+  if (localReady) return;
+  if (sensors) {
+    calibration = sensors.fusion.rezeroYaw();
+    net?.calibrated(sensors.fusion.yawOffset);
+  }
+  localReady = true;
+  net?.readyPoint();
+  haptics.play('serve');
+  renderPlay();
+}
+
+/**
+ * Two lamps, mine on the left.
+ *
+ * A circle is allowed here because a status light is literally round; nothing
+ * else on this screen is. Unlit is the apron-deep of a seat nobody has taken,
+ * which is the same empty state the display draws for an unclaimed half.
+ */
+function lampsHtml(mine: boolean, theirs: boolean, theySeated: boolean): string {
+  return `
+    <div class="lamps">
+      <div class="lamp ${mine ? 'on' : ''}"><i></i>You</div>
+      <div class="lamp ${theirs ? 'on' : ''}">
+        <i></i>${theySeated || theirs ? 'Them' : 'No phone'}
+      </div>
+    </div>`;
+}
+
+/**
+ * The one action on this screen.
+ *
+ * Exactly one optic field per screen is the rule, and optic is reserved for the
+ * live signal — which includes the action that starts play. READY, SERVE and
+ * REMATCH are all that action at different moments, so they are the same button
+ * in the same place, never two at once. A seat that has readied and is waiting on
+ * the other one drops to court green: it is no longer the pending action, and
+ * leaving it optic would spend the signal colour on a thing that is done.
+ */
+function primaryHtml(
+  phase: string,
+  yourServe: boolean,
+  readyBeat: boolean,
+  iAmReady: boolean,
+  theyReady: boolean,
+  bothReady: boolean,
+  theySeated: boolean,
+): string {
+  if (phase === 'gameover') {
+    return `<button class="act" id="rematch">REMATCH</button>`;
+  }
+  if (readyBeat && !iAmReady) {
+    return `<button class="act" id="ready">READY<small>Hold the phone up at the screen</small></button>`;
+  }
+  if (readyBeat && !theyReady) {
+    return `<button class="act set" id="waiting" disabled>
+      READY<small>${theySeated ? 'Waiting for them' : 'Waiting for a phone on the other seat'}</small>
+    </button>`;
+  }
+  if (yourServe && phase === 'serve' && bothReady) {
+    return `<button class="act" id="serve">SERVE</button>`;
+  }
+  return '';
 }
 
 function statusText(phase: string, yourServe: boolean, l: LiteState | null): string {

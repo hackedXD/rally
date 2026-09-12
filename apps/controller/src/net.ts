@@ -41,6 +41,10 @@ export interface LiteState {
   you: Seat;
   opponent: string | null;
   gamePoint: boolean;
+  /** Who has readied up for the next point, seat-indexed. A bot seat reads true. */
+  ready: [boolean, boolean];
+  /** Which seats have a phone on them at all, seat-indexed. */
+  seated: [boolean, boolean];
 }
 
 export interface NetHandlers {
@@ -209,6 +213,15 @@ export class ControllerNet {
 
   ready(name: string): void {
     this.send({ t: 'READY', name });
+  }
+
+  /** Held at the court and re-centred, for this point. See READY_POINT. */
+  readyPoint(): void {
+    this.send({ t: 'READY_POINT' });
+  }
+
+  rematch(): void {
+    this.send({ t: 'REMATCH' });
   }
 
   calibrated(yawOffset: number): void {

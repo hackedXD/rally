@@ -262,6 +262,15 @@ export class SessionManager {
         this.refresh(room);
         if (room.readyToStart && room.phase === 'lobby') void room.start();
         return;
+      case 'READY_POINT':
+        room.setPointReady(seat);
+        return;
+      case 'REMATCH':
+        // Same call the display's REMATCH makes. Both ends may ask: you are as
+        // likely to be holding the phone as looking at the screen when a match
+        // ends.
+        room.rematch();
+        return;
       case 'PAUSE':
         room.setPaused(seat, msg.paused);
         return;

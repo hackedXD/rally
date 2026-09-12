@@ -44,6 +44,9 @@ export function Hud({ client, ownSeat }: Props) {
   const phase = snap?.phase ?? 'lobby';
   const rally = snap?.rally ?? 0;
   const gamePoint = score?.gamePoint ?? false;
+  // Between points, and at the start of one: the beat where both bats have to
+  // come up. Missing `ready` is an older replay, where nothing was ever waiting.
+  const waiting = (phase === 'serve' || phase === 'point') && snap?.ready !== undefined;
   const now = performance.now();
   const showBanner = banner && now - banner.at < banner.ttl;
   const showSub = subtitle && now - subtitle.at < 6000;
@@ -62,6 +65,14 @@ export function Hud({ client, ownSeat }: Props) {
         <div className="nm">{names[i] ?? `Player ${i + 1}`}</div>
         {/* A dropped phone, marked on the plate rather than in a legend. */}
         {dropped && <span className="off" title="Phone dropped" />}
+        {/* Who the serve is waiting on. Unlit is the seat that has not put its
+            bat up yet, which is the only thing stopping the next point. */}
+        {waiting && (
+          <span
+            className={`lamp${snap!.ready![i] ? ' on' : ''}`}
+            title={snap!.ready![i] ? 'Ready' : 'Waiting for them to ready up'}
+          />
+        )}
         <div className="pts">{score?.points[i] ?? 0}</div>
       </div>
     );

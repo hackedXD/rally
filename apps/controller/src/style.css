@@ -224,13 +224,55 @@ html, body {
 .swing-area.whiff { background: var(--flag); }
 .swing-area.whiff .hint { color: var(--line); }
 
-.serve-btn {
-  width: 100%; padding: 26px; border: var(--tape) solid var(--line);
+/*
+ * The one action, whatever it happens to be right now.
+ *
+ * READY, SERVE and REMATCH are the same button in the same place at different
+ * moments — never two at once, because exactly one optic field per screen is the
+ * rule and optic belongs to the action that starts play. Keeping them one
+ * selector is also what stops the thumb having to move: it is the same target all
+ * match, and the player is looking at the television, not at this.
+ */
+.act {
+  width: 100%; padding: 22px 16px; border: var(--tape) solid var(--line);
   background: var(--optic); color: var(--ink);
   font-family: var(--display); font-size: clamp(26px, 8vw, 32px);
+  display: grid; gap: 6px; justify-items: center;
 }
-.serve-btn:active { transform: scale(0.985); }
-.serve-btn[hidden] { display: none; }
+.act small {
+  font-family: var(--text); font-size: 13px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.act:active { transform: scale(0.985); }
+/*
+ * Readied, waiting on the other bat. Court green with ink, which is what your own
+ * half of the court is everywhere else in the product — and no longer optic,
+ * because this is a thing that is done rather than a thing to do.
+ */
+.act.set { background: var(--court); color: var(--ink); }
+.act:disabled { transform: none; }
+
+/*
+ * Two lamps, mine on the left, on the apron strip above the action.
+ *
+ * The same pair is on the display, so a glance at either answers the same
+ * question. The dot is a circle because a status light is round on any real
+ * scoreboard; it is the only curve on this screen besides the wordmark's ball.
+ */
+.lamps { display: flex; gap: var(--tape); }
+.lamp {
+  flex: 1; display: flex; align-items: center; gap: 9px;
+  padding: 11px 13px;
+  background: var(--apron-deep);
+  border: var(--tape) solid var(--apron-deep);
+  color: var(--label-dim, #9fb2e8);
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.lamp i { width: 11px; height: 11px; border-radius: 50%; background: #0a2e8a;
+  border: 2px solid var(--label-dim, #9fb2e8); flex: none; }
+.lamp.on { border-color: var(--line); color: var(--line); }
+.lamp.on i { background: var(--optic); border-color: var(--optic); }
 
 .foot { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; color: var(--chalk); }
 .foot span { font-variant-numeric: tabular-nums; }

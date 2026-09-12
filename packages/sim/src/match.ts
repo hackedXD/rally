@@ -88,6 +88,17 @@ export interface TickInput {
    * audio is or who is speaking.
    */
   holdUntil?: Millis;
+  /**
+   * Nobody may serve yet — a bat is still being squared up.
+   *
+   * Distinct from `holdUntil`, which is a deadline and is deliberately capped so
+   * a talkative commentator cannot stop the game. This is a veto, and it is not
+   * capped: it is only ever raised while a phone has not tapped ready, and that
+   * phone is showing a full-screen button saying exactly that. The one thing that
+   * does outrank it is the auto-serve deadline, because a client too old to send
+   * READY_POINT would otherwise hold the court hostage forever.
+   */
+  serveGate?: boolean;
   paused: boolean;
 }
 
@@ -373,6 +384,13 @@ export class Match implements MatchEngine {
 
     const held = this.t < (input.holdUntil ?? 0);
     const timedOut = this.t - this.phaseT > TUNING.serve.autoServeAfterMs;
+    // The ready gate. After the latch, so a SERVE pressed early is remembered
+    // rather than eaten — and under the same auto-serve deadline everything else
+    // here is under. A phone on a stale bundle cannot send READY_POINT at all,
+    // and a gate with no way out would leave that player looking at a court where
+    // nothing will ever happen again. Twelve seconds is far longer than the beat
+    // ever takes and short enough that the match visibly recovers.
+    if (input.serveGate && !timedOut) return;
     // The auto-serve deadline outranks the hold. A demo must never stall on
     // someone who did not understand the UI, and it must equally never stall on
     // a commentator who will not stop talking — belt and braces, because a hold

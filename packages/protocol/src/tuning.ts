@@ -179,6 +179,15 @@ export interface Tuning {
     autoServeAfterMs: number;
     /** Ball is held this high before the serve toss, metres. */
     holdHeight: number;
+    /**
+     * Beat between the last player readying up and the serve, ms.
+     *
+     * Without it the serve lands on the same frame as the tap, which reads as
+     * the game jumping the gun — you are still lowering the phone from the
+     * button when the ball is already past you. Two seconds is enough to get the
+     * bat up and no longer than a player would take between points anyway.
+     */
+    readyDelayMs: number;
   };
   bot: {
     /** 0 = helpless, 1 = frame-perfect. */
@@ -328,6 +337,7 @@ export const DEFAULT_TUNING: Tuning = {
     assist: 0.85,
     autoServeAfterMs: 12_000,
     holdHeight: 0.95,
+    readyDelayMs: 2000,
   },
   bot: {
     skill: 0.55,

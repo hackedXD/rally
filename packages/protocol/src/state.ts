@@ -89,6 +89,15 @@ export interface Snapshot {
   rally: number;
   /** Server time the current phase began — display countdowns read this. */
   phaseT: Millis;
+  /**
+   * Who has readied up for the next point, by lane.
+   *
+   * Added by the room on the way out rather than produced by the simulation: the
+   * ready-up is a handshake between phones, and the engines have no business
+   * knowing there is such a thing as a phone. Absent in a replay written before
+   * the gate existed, so the display treats missing as "everyone is ready".
+   */
+  ready?: [boolean, boolean];
 }
 
 // ── Sport specification ───────────────────────────────────────────────────────

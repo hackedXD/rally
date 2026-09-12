@@ -85,6 +85,8 @@ export const c2sSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('BUTTON'), button: z.enum(['serve', 'mute']) }),
   z.object({ t: z.literal('CALIBRATED'), yawOffset: num }),
   z.object({ t: z.literal('READY'), name: nameField }),
+  z.object({ t: z.literal('READY_POINT') }),
+  z.object({ t: z.literal('REMATCH') }),
   z.object({ t: z.literal('PAUSE'), paused: z.boolean() }),
 ]);
 
@@ -156,6 +158,7 @@ export const snapshotSchema = z.object({
     .optional(),
   rally: num,
   phaseT: num,
+  ready: z.tuple([z.boolean(), z.boolean()]).optional(),
 });
 
 const gameEvent = z.object({
@@ -271,6 +274,8 @@ export const s2cSchema = z.discriminatedUnion('t', [
     you: seat,
     opponent: z.string().nullable(),
     gamePoint: z.boolean(),
+    ready: z.tuple([z.boolean(), z.boolean()]),
+    seated: z.tuple([z.boolean(), z.boolean()]),
   }),
   z.object({ t: z.literal('ERROR'), code: z.string(), message: z.string() }),
 ]);

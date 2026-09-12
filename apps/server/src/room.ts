@@ -104,6 +104,14 @@ interface SeatSlot {
   controller: Conn | null;
   name: string | null;
   ready: boolean;
+  /**
+   * Has this seat readied up for the NEXT POINT?
+   *
+   * Separate from `ready`, which is the lobby's "I am here" and latches for the
+   * session. This one clears at the end of every point and is the gate on the
+   * next serve.
+   */
+  pointReady: boolean;
   bot: Bot | null;
   pairToken: string;
   tokenUsed: boolean;
@@ -147,6 +155,8 @@ export class Room {
 
   private slots: SeatSlot[];
   private serveRequests: Seat[] = [];
+  /** When the last seat readied up, so the serve can wait a beat after it. */
+  private pointReadyAt: Millis = 0;
   private lastSnapshotAt = -1e9;
   private lastLiteAt = -1e9;
   private seed: number;
@@ -190,6 +200,7 @@ export class Room {
       controller: null,
       name: null,
       ready: false,
+      pointReady: false,
       bot: null,
       pairToken: shortId(22, rand),
       tokenUsed: false,
@@ -403,6 +414,13 @@ export class Room {
 
   onSwing(seat: Seat, swing: SwingInput, conn: Conn): void {
     if (this.phase !== 'live') return;
+    // Swung before readying up. Told about it rather than dropped: a swing that
+    // does nothing and says nothing reads as a broken sensor, and the phone
+    // turns this cue into the same buzz a miss gets.
+    if (this.serveGate(this.now())) {
+      conn.send({ t: 'CUE', kind: 'whiff' });
+      return;
+    }
     // The table tennis engine wants the swing exactly as the phone reported it:
     // `vsw` is in the player's own motion frame and `paddleFrame` does the seat
     // mapping itself, so pre-rotating either would apply the flip twice.
@@ -420,6 +438,58 @@ export class Room {
     // arrived on, and that is the timestamp its replays need.
     this.recorder?.swing(seat, world, usesPingPong(this.sport) ? this.now() : tServer);
     this.touch();
+  }
+
+  /**
+   * Ready up for the next point, from the phone.
+   *
+   * Two jobs on one tap, and the second is the one that matters: the phone
+   * re-zeros its own yaw as it sends this, so the heading is re-anchored at the
+   * start of every single point by somebody doing something they were going to
+   * do anyway. Every way of GUESSING where the court is can be wrong. Being told
+   * never is.
+   */
+  setPointReady(seat: Seat): void {
+    const slot = this.slots[lane(seat)];
+    if (slot.pointReady) return;
+    slot.pointReady = true;
+    if (this.bothPointReady) this.pointReadyAt = this.now();
+    // Out of band rather than on the next 400 ms LITE: the other phone is
+    // showing a lamp for this, and a lamp that takes half a second to light
+    // reads as a button that missed.
+    this.sendLite();
+    this.touch();
+  }
+
+  /**
+   * A bot seat is always ready — it has no gyroscope to re-centre and nothing to
+   * tap, and making a human wait on it would deadlock every single-player game.
+   */
+  private seatPointReady(slot: SeatSlot): boolean {
+    return slot.bot !== null || slot.pointReady;
+  }
+
+  private get bothPointReady(): boolean {
+    return this.slots.every((s) => this.seatPointReady(s));
+  }
+
+  /** Back to un-ready, which is what makes the tap happen every point. */
+  private clearPointReady(): void {
+    for (const slot of this.slots) slot.pointReady = false;
+  }
+
+  /**
+   * Is the next serve held?
+   *
+   * True while a bat is still being squared up, and for `readyDelayMs` after the
+   * last one is — see that constant for why the beat is there. Only ever raised
+   * during the serve phase: a gate that stayed up during a rally would freeze a
+   * ball that is already in the air.
+   */
+  private serveGate(now: Millis): boolean {
+    if (this.match.phase !== 'serve') return false;
+    if (!this.bothPointReady) return true;
+    return now - this.pointReadyAt < TUNING.serve.readyDelayMs;
   }
 
   requestServe(seat: Seat): void {
@@ -564,6 +634,7 @@ export class Room {
 
     if (this.phase !== 'preparing') return; // disposed while preparing
     this.phase = 'live';
+    this.clearPointReady();
     this.match.reset(this.sport);
     this.match.setNames(this.names());
     this.match.start(this.now());
@@ -583,6 +654,7 @@ export class Room {
   }
 
   rematch(): void {
+    this.clearPointReady();
     this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
     this.director.reset();
     this.match.reset(this.sport);
@@ -625,9 +697,16 @@ export class Room {
       if (slot.paused) paused = true;
     }
 
+    // Nobody may serve until both bats are ready.
+    const gated = this.serveGate(now);
+    const phaseBefore = this.match.phase;
+
     // Bots read the same telegraph the display renders and emit the same swings a
-    // phone does, so they exercise the exact strike path a human does.
-    if (!paused && !this.match.drivesOwnBots) {
+    // phone does, so they exercise the exact strike path a human does. They wait
+    // on the ready-up like everyone else — without that the bot serves into a
+    // player who is still holding the phone up getting centred, which is exactly
+    // the moment the tap exists to protect.
+    if (!paused && !gated && !this.match.drivesOwnBots) {
       const telegraph = this.match.getTelegraph();
       const prediction = this.match.getPrediction();
       for (const slot of this.slots) {
@@ -668,6 +747,7 @@ export class Room {
         1: this.slots[1].bot !== null || this.slots[1].droppedAt === null,
       },
       serveRequests: this.serveRequests,
+      serveGate: gated,
       // Hold play while the commentator still has something to say. Capped
       // inside the director, so a bad estimate slows the game rather than
       // stopping it.
@@ -675,6 +755,11 @@ export class Room {
       paused,
     });
     this.serveRequests = [];
+
+    // Any way out of a rally ends the ready-up, the last point of the match
+    // included — otherwise the bats stay standing to attention over the end card
+    // and a rematch starts with a seat already ready.
+    if (phaseBefore === 'rally' && this.match.phase !== 'rally') this.clearPointReady();
 
     const events = this.match.drainEvents();
     if (events.length) {
@@ -687,7 +772,13 @@ export class Room {
     const snapshotInterval = 1000 / TUNING.net.snapshotHz;
     if (now - this.lastSnapshotAt >= snapshotInterval) {
       this.lastSnapshotAt = now;
-      this.toDisplays({ t: 'SNAPSHOT', s: snapshot });
+      this.toDisplays({
+        t: 'SNAPSHOT',
+        s: {
+          ...snapshot,
+          ready: [this.seatPointReady(this.slots[0]), this.seatPointReady(this.slots[1])],
+        },
+      });
       this.recorder?.snapshot(snapshot);
     }
 
@@ -782,6 +873,8 @@ export class Room {
         you: slot.seat,
         opponent: this.slots[lane(otherSeat(slot.seat))].name,
         gamePoint: score.gamePoint && score.gamePointSeat === slot.seat,
+        ready: [this.seatPointReady(this.slots[0]), this.seatPointReady(this.slots[1])],
+        seated: [this.slots[0].controller !== null, this.slots[1].controller !== null],
       });
     }
   }

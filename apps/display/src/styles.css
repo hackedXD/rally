@@ -584,6 +584,18 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
 
 /* A dropped phone, marked on the plate rather than in a legend. */
 .scorebug .off { width: 11px; height: 11px; border-radius: 50%; background: var(--flag); flex: none; }
+/*
+ * Who the serve is waiting on. A circle, because a status light is round on any
+ * real scoreboard — and the same pair the phone draws, so a glance at either
+ * answers the same question. Optic when lit: the serve is the action that starts
+ * play, and this is the last thing standing in front of it.
+ */
+.scorebug .lamp {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: transparent; border: 2px solid currentColor; opacity: 0.45;
+  flex: none;
+}
+.scorebug .lamp.on { background: var(--optic); border-color: var(--optic); opacity: 1; }
 
 .rally-tag {
   position: absolute; top: calc(clamp(30px, 3.4vw, 50px) + 46px); left: 50%; transform: translateX(-50%);
