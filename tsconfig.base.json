@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@rally/protocol": ["packages/protocol/src/index.ts"],
+      "@rally/protocol/*": ["packages/protocol/src/*"],
+      "@rally/sim": ["packages/sim/src/index.ts"],
+      "@rally/sim/*": ["packages/sim/src/*"],
+      "@rally/motion": ["packages/motion/src/index.ts"],
+      "@rally/motion/*": ["packages/motion/src/*"]
+    }
+  }
+}

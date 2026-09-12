@@ -1,0 +1,47 @@
+{
+  "name": "rally",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Motion-controlled remote multiplayer swing sports with live AI commentary",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "tsx watch --tsconfig tsconfig.node.json apps/server/src/index.ts",
+    "dev:display": "vite --config apps/display/vite.config.ts",
+    "dev:controller": "vite --config apps/controller/vite.config.ts",
+    "build": "npm run build:display && npm run build:controller",
+    "build:display": "vite build --config apps/display/vite.config.ts",
+    "build:controller": "vite build --config apps/controller/vite.config.ts",
+    "start": "node --import tsx apps/server/src/index.ts",
+    "serve": "npm run build && RALLY_SERVE_STATIC=1 npm run start",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p apps/display/tsconfig.json --noEmit && tsc -p apps/controller/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "headless": "tsx --tsconfig tsconfig.node.json tools/mocks/headless-sim.ts",
+    "mock:controller": "tsx --tsconfig tsconfig.node.json tools/mocks/mock-controller.ts",
+    "mock:events": "tsx --tsconfig tsconfig.node.json tools/mocks/mock-events.ts",
+    "echo": "tsx --tsconfig tsconfig.node.json tools/mocks/echo-server.ts",
+    "replay": "tsx --tsconfig tsconfig.node.json tools/replay/replay.ts",
+    "tunnel": "node scripts/tunnel.mjs",
+    "mock:snapshots": "tsx --tsconfig tsconfig.node.json tools/mocks/mock-snapshots.ts",
+    "check": "npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

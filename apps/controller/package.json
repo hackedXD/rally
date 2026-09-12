@@ -1,0 +1,10 @@
+{
+  "name": "@rally/controller",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rally/motion": "*",
+    "@rally/protocol": "*"
+  }
+}

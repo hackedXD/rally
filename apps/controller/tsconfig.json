@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "baseUrl": "../..",
+    "paths": {
+      "@rally/protocol": ["packages/protocol/src/index.ts"],
+      "@rally/protocol/*": ["packages/protocol/src/*"],
+      "@rally/motion": ["packages/motion/src/index.ts"],
+      "@rally/motion/*": ["packages/motion/src/*"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "../../packages/protocol/src/**/*.ts",
+    "../../packages/motion/src/**/*.ts"
+  ]
+}

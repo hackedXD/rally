@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ES2023"]
+  },
+  "include": [
+    "packages/protocol/src/**/*.ts",
+    "packages/sim/src/**/*.ts",
+    "packages/motion/src/**/*.ts",
+    "apps/server/src/**/*.ts",
+    "tools/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.mjs"
+  ]
+}

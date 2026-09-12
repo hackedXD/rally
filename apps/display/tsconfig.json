@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "baseUrl": "../..",
+    "paths": {
+      "@rally/protocol": ["packages/protocol/src/index.ts"],
+      "@rally/protocol/*": ["packages/protocol/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "../../packages/protocol/src/**/*.ts"]
+}
