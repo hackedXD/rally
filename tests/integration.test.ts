@@ -224,7 +224,9 @@ describe('pairing and a full match', () => {
 
     // The pair token must be in the URL FRAGMENT, never the query string:
     // fragments are not sent in the HTTP request line and so never reach a log.
-    expect(state.pairUrl).toContain('/c#');
+    // The trailing-slash form, which works against both the dev server and the
+    // production static mount.
+    expect(state.pairUrl).toContain('/c/#');
     const frag = new URLSearchParams(state.pairUrl.split('#')[1]);
     expect(frag.get('r')).toBe(state.room);
     expect(frag.get('s')).toBe('0');

@@ -124,6 +124,20 @@ export class CueStore {
     this.byOutcome.clear();
   }
 
+  /**
+   * Mark a cue used, whoever played it.
+   *
+   * `take` consumes what it hands out, but the live layer adds a cue and plays it
+   * directly — and a cue that was played but not consumed is still sitting in the
+   * store for the arbiter to pick up and play a second time. Making this callable
+   * from the one place that plays anything turns "a cue is spoken at most once"
+   * into an invariant rather than a property of each call site.
+   */
+  consume(id: string): void {
+    const s = this.byId.get(id);
+    if (s) s.consumed = true;
+  }
+
   has(cls: CueClass, now: Millis): boolean {
     const ids = this.byClass.get(cls);
     if (!ids) return false;

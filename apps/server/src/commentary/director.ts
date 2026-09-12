@@ -306,6 +306,9 @@ export class CommentaryDirector {
   }
 
   private play(id: string, priority: GameEvent['priority'], text: string): void {
+    // Everything that speaks goes through here, so consuming here is what makes
+    // "no line twice in a match" true rather than merely intended.
+    this.store.consume(id);
     this.host.broadcast({ t: 'CUE_PLAY', id, priority });
     this.lastSpokeAt = this.host.now();
     this.spoken++;

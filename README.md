@@ -28,7 +28,7 @@ see [Playing with a phone](#playing-with-a-phone).
 | **Controllers** | An iPhone held like a paddle, or a mouse. Both speak the identical protocol; the server cannot tell them apart. |
 | **Opponent** | Another human across the internet, or a built-in bot with a difficulty dial. |
 | **Commentary** | Works with no API keys at all. Add a Gemini key and an ElevenLabs key and the same pipeline upgrades in place. |
-| **Tests** | 100+ covering the physics, the shot solver, sensor fusion, the protocol, the commentary, and a full match over real WebSockets. |
+| **Tests** | 92 covering the physics, the shot solver, sensor fusion, the protocol, the commentary, and a full match over real WebSockets. |
 
 ---
 
@@ -42,7 +42,7 @@ npm run dev
 | | |
 |---|---|
 | Display | <http://localhost:5173> |
-| Phone app | <http://localhost:5174/c> (the QR code points here) |
+| Phone app | <http://localhost:5173/c> (proxied from the display, which is where the QR points) |
 | Health | <http://localhost:8787/healthz> |
 
 **Play right now, with a mouse:** open the display → **Play here (mouse)** →
@@ -62,9 +62,18 @@ fun to read, no amount of shaders would have saved it.
 
 ## Playing with a phone
 
-iOS grants motion access **only over HTTPS**. `http://localhost` will not work, no
-matter what else is right — this is the single most common way a build like this
-fails. So:
+Two things have to be true, and they fail in different ways:
+
+- **The phone has to be able to reach the server.** A QR code encoding
+  `http://localhost` sends the phone to its *own* localhost, which shows a blank
+  screen with no error. When the display is on the same machine as the server,
+  Rally therefore points the QR at this machine's LAN address instead, so a phone
+  on the same wifi can load the page.
+- **iOS grants motion access only over HTTPS.** Over plain HTTP the phone will
+  load the page and then refuse the sensors, with an on-screen explanation. The
+  lobby says so next to the QR code.
+
+So for the real thing:
 
 ```bash
 npm run build                       # build the display and phone bundles
@@ -75,6 +84,9 @@ RALLY_PUBLIC_ORIGIN=https://your-tunnel.example npm run serve
 Then open the tunnel URL on a laptop, and scan the QR code with a phone. The phone
 shows one button; tapping it grants motion access, orientation access and a screen
 wake lock in a single gesture — iOS requires all three to come from the same tap.
+
+Without a tunnel the QR still works well enough to see the app: the phone loads,
+shows the gate, and explains that it needs HTTPS for the sensors.
 
 A 1.5 second calibration follows: hold the phone like a paddle, pointing at your
 display. After that the only input is the swing.

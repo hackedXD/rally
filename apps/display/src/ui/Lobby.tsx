@@ -18,6 +18,11 @@ interface Props {
   onPlayHere: () => void;
 }
 
+/** A phone will not grant motion access to a page served over plain HTTP. */
+function insecure(url: string): boolean {
+  return url.startsWith('http://');
+}
+
 export function Lobby({ client, onStart, onPlayHere }: Props) {
   const room = useGame((s) => s.room);
   const sports = useGame((s) => s.sports);
@@ -27,12 +32,23 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (!room?.pairUrl || !canvasRef.current) return;
-    void QRCode.toCanvas(canvasRef.current, room.pairUrl, {
-      width: 460,
+    const canvas = canvasRef.current;
+    if (!room?.pairUrl || !canvas) return;
+    void QRCode.toCanvas(canvas, room.pairUrl, {
+      // Bitmap resolution, not display size: the canvas is laid out by CSS, and
+      // rendering well above the CSS box keeps the code crisp on a retina panel
+      // and easy for a phone camera to lock onto.
+      width: 512,
       margin: 1,
       color: { dark: '#06090f', light: '#ffffff' },
       errorCorrectionLevel: 'M',
+    }).then(() => {
+      // The library writes inline `width`/`height` in pixels, and an inline style
+      // beats every stylesheet rule. Left alone, the author `max-width` clamps the
+      // width while the inline height stands, and the code renders stretched.
+      // Clear them and let the square frame do the sizing.
+      canvas.style.removeProperty('width');
+      canvas.style.removeProperty('height');
     });
   }, [room?.pairUrl]);
 
@@ -141,11 +157,21 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
           <div className="qr-panel">
             {room?.pairUrl ? (
               <>
-                <canvas ref={canvasRef} />
+                <div className="qr-frame">
+                  <canvas ref={canvasRef} />
+                </div>
                 <div className="code">{room.code}</div>
                 <div className="hint">
                   Seat {(room.seat ?? 0) + 1} · scan with your phone camera
                 </div>
+                {insecure(room.pairUrl) && (
+                  <div className="warn-note">
+                    This link is plain HTTP, so the phone will load but cannot use
+                    its motion sensors — iOS grants those only over HTTPS. Run{' '}
+                    <code>npm run tunnel</code> and set <code>RALLY_PUBLIC_ORIGIN</code>,
+                    or use <b>Play here</b>.
+                  </div>
+                )}
                 <div className="url">{room.pairUrl}</div>
               </>
             ) : (

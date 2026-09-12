@@ -26,6 +26,17 @@ export default defineConfig({
       '/ws': { target: 'ws://localhost:8787', ws: true },
       '/api': { target: 'http://localhost:8787' },
       '/healthz': { target: 'http://localhost:8787' },
+      // The phone app, proxied from its own dev server.
+      //
+      // The QR code encodes whatever origin the display is served from, so in
+      // development that is this port. Without this proxy the code points at a
+      // 404 and the phone flow cannot be tested at all until you build — which is
+      // exactly the thing you most want to iterate on.
+      '/c': {
+        target: 'http://localhost:5174',
+        // The controller dev server serves its index at the directory form.
+        rewrite: (path) => (path === '/c' ? '/c/' : path),
+      },
     },
   },
   build: {

@@ -30,6 +30,18 @@ import './style.css';
 const app = document.getElementById('app')!;
 const pairing = readPairing();
 
+/**
+ * Which screen is up.
+ *
+ * This exists because every lifecycle handler on this page is capable of
+ * redrawing, and a redraw that ignores where the player actually is will happily
+ * replace the "Tap to play" button with a play screen that has no sensors behind
+ * it — leaving the phone stuck on a dead UI with no way forward. `visibilitychange`
+ * alone fires on load on a real phone, so this is not a corner case.
+ */
+type Screen = 'gate' | 'calibrating' | 'playing' | 'fatal';
+let screen: Screen = 'gate';
+
 let net: ControllerNet | null = null;
 let sensors: SensorStream | null = null;
 let lite: LiteState | null = null;
@@ -58,6 +70,7 @@ if (!pairing) {
 // ── Gate ──────────────────────────────────────────────────────────────────────
 
 function renderGate(message?: string): void {
+  screen = 'gate';
   app.innerHTML = '';
   const gate = el('div', 'gate');
   gate.append(
@@ -94,6 +107,7 @@ async function onTap(button: HTMLElement): Promise<void> {
 // ── Calibration ───────────────────────────────────────────────────────────────
 
 function startCalibration(): void {
+  screen = 'calibrating';
   // During calibration nothing is sent anywhere; the fusion just needs samples.
   sensors = startSensors({ onPose: noop, onSwing: noop });
   const calibrator = new Calibrator();
@@ -120,9 +134,22 @@ function startCalibration(): void {
   const arc = ring.querySelector('#arc') as SVGCircleElement;
   const pct = ring.querySelector('.pct') as HTMLElement;
 
+  const waitingSince = performance.now();
   const tick = (): void => {
     const f = sensors!.fusion;
     if (!f.ready) {
+      // A browser can grant motion permission and then never deliver a sample —
+      // a desktop with no sensors, or a device that has them switched off. Say so
+      // rather than spinning on an empty progress ring forever.
+      if (performance.now() - waitingSince > 4000) {
+        sensors?.stop();
+        renderFatal(
+          'No motion from this device',
+          'Permission was granted but no sensor readings arrived. This usually means ' +
+            'the device has no motion sensors. Use "Play here (mouse)" on the display instead.',
+        );
+        return;
+      }
       requestAnimationFrame(tick);
       return;
     }
@@ -157,6 +184,7 @@ function startCalibration(): void {
 // ── Connect and play ──────────────────────────────────────────────────────────
 
 function connect(): void {
+  screen = 'playing';
   net = new ControllerNet(wsUrl(), pairing!, {
     onState: (state) => {
       connState = state;
@@ -226,6 +254,8 @@ function connect(): void {
 
 let renderQueued = false;
 function renderPlay(): void {
+  // Only the play screen may be drawn by this. Everything else owns its own DOM.
+  if (screen !== 'playing') return;
   if (renderQueued) return;
   renderQueued = true;
   requestAnimationFrame(() => {
@@ -358,6 +388,7 @@ function renderPausedOverlay(): void {
 }
 
 function renderFatal(title: string, message: string): void {
+  screen = 'fatal';
   app.innerHTML = '';
   const gate = el('div', 'gate');
   gate.append(html(`<h1>${escapeHtml(title)}</h1>`), html(`<p>${escapeHtml(message)}</p>`));
@@ -369,12 +400,17 @@ function renderFatal(title: string, message: string): void {
 // Backgrounding Safari suspends the sensor stream, so say so rather than letting
 // the paddle silently freeze mid-rally.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    paused = true;
-    net?.paused(true);
-  } else {
+  if (document.visibilityState !== 'hidden') {
     void reacquireWakeLock();
+    renderPlay();
+    return;
   }
+  // Backgrounding Safari suspends the sensor stream. Only meaningful once there
+  // is a sensor stream to suspend — before that, going hidden is just the page
+  // loading, and treating it as a pause strands the player on a dead screen.
+  if (screen !== 'playing') return;
+  paused = true;
+  net?.paused(true);
   renderPlay();
 });
 
@@ -420,18 +456,31 @@ function cueToClick(kind: CueKind): Parameters<typeof haptics.play>[0] {
   }
 }
 
+/**
+ * A remembered, speakable name for this player.
+ *
+ * The word lists live INSIDE the function on purpose. This is called while the
+ * module is still evaluating, and module-level `const`s declared further down the
+ * file are in the temporal dead zone at that point — reaching one throws, the
+ * script dies, and the page renders as a blank screen. It only bites when storage
+ * is empty, which is never true in local testing and always true on a phone
+ * opening the page for the first time.
+ */
 function loadName(): string {
   const stored = localStorage.getItem('rally.name');
   if (stored) return sanitizeName(stored);
-  const generated = pick(ADJECTIVES) + ' ' + pick(NOUNS);
-  const name = sanitizeName(generated);
-  localStorage.setItem('rally.name', name);
+  const adjectives = ['Swift', 'Lucky', 'Bold', 'Calm', 'Sly', 'Keen', 'Wild'];
+  const nouns = ['Otter', 'Falcon', 'Comet', 'Pike', 'Ember', 'Moth', 'Fox'];
+  const pick = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
+  const name = sanitizeName(`${pick(adjectives)} ${pick(nouns)}`);
+  try {
+    localStorage.setItem('rally.name', name);
+  } catch {
+    // Private browsing can refuse to store. A name that is not remembered is
+    // still a name; it must not take the page down with it.
+  }
   return name;
 }
-
-const ADJECTIVES = ['Swift', 'Lucky', 'Bold', 'Calm', 'Sly', 'Keen', 'Wild'];
-const NOUNS = ['Otter', 'Falcon', 'Comet', 'Pike', 'Ember', 'Moth', 'Fox'];
-const pick = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
 
 function noop(): void {
   /* placeholder until the socket exists */

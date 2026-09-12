@@ -231,6 +231,15 @@ describe('the cue store', () => {
     expect(store.take('net.hit', 0, { seat: 1 })?.cue.text).toBe('Into the net.');
   });
 
+  it('consume() marks a cue used however it was played', () => {
+    // Regression: the live layer adds a cue and plays it directly rather than
+    // taking it, so without this the arbiter could hand the same line out again.
+    const store = new CueStore();
+    const cue = store.add('point.close', 'Lovely.', new Uint8Array(0), 900, 'cache', true);
+    store.consume(cue.id);
+    expect(store.take('point.close', 0)).toBeNull();
+  });
+
   it('consumes a cue exactly once', () => {
     const store = new CueStore();
     store.add('streak', 'On a run.', new Uint8Array(0), 800, 'cache', true);
@@ -375,8 +384,11 @@ describe('the Director, end to end', () => {
 
     const spoken = h.spokenTexts().filter((t) => t !== '(streamed)');
     expect(spoken.length).toBeGreaterThan(5);
-    // Zero repeated lines across a full match (W5 exit criterion).
+    // Zero repeated lines across a full match (W5 exit criterion) — and no cue
+    // id played twice, which is the mechanism behind it.
     expect(new Set(spoken.map(normalizeLine)).size).toBe(spoken.length);
+    const ids = h.played.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
 
     // A commentator who talks through every rally hit becomes noise. There were
     // far more events than lines.

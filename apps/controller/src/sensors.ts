@@ -61,10 +61,13 @@ export async function requestSensors(): Promise<SensorGrant> {
     wakeLock,
   };
   if (!grant.motion || !grant.orientation) {
-    grant.reason =
-      location.protocol === 'https:'
-        ? 'Motion access was declined. Reload the page and allow it, or use Settings > Safari > Motion & Orientation Access.'
-        : 'iOS only grants motion access over HTTPS. Open the display through an HTTPS tunnel and rescan.';
+    // `isSecureContext`, not the protocol: localhost over http is secure and will
+    // happily grant, so blaming HTTPS there sends people chasing a tunnel they do
+    // not need.
+    grant.reason = !window.isSecureContext
+      ? 'iOS grants motion access only over HTTPS. Open the display through an HTTPS tunnel and rescan the code.'
+      : 'Motion access was declined. Reload and allow it, or check Settings > Safari > Motion & Orientation Access. ' +
+        'No sensors on this device? Use "Play here (mouse)" on the display instead.';
   }
   return grant;
 }

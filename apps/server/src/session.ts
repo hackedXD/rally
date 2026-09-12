@@ -246,8 +246,12 @@ export class SessionManager {
       const display = room.displayFor(seat);
       if (!display) continue;
       const origin = this.originFor(display);
+      // `/c/` with the trailing slash, not `/c`: the controller's dev server
+      // serves its index at the directory form, so the bare path 404s in
+      // development. The trailing-slash form works against both the dev server
+      // and the production static mount.
       const url =
-        `${origin}/c#r=${room.code}&s=${seat}&t=${encodeURIComponent(room.tokenFor(seat))}`;
+        `${origin}/c/#r=${room.code}&s=${seat}&t=${encodeURIComponent(room.tokenFor(seat))}`;
       display.send({
         t: 'ROOM_STATE',
         room: room.code,

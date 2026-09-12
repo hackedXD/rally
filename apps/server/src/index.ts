@@ -18,6 +18,7 @@ import { SPORT_ORDER, getSport } from '@rally/sim';
 import { CONFIG, aiStatus } from './config.js';
 import { log } from './log.js';
 import { NetLoop } from './netloop.js';
+import { lanAddress, resolveOrigin } from './origin.js';
 import { SessionManager } from './session.js';
 import { Conn, attachParser } from './wire.js';
 
@@ -109,17 +110,18 @@ if (CONFIG.serveStatic) {
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 16 });
 
+const LAN = lanAddress();
+
 /**
- * The origin used to build the controller QR URL. Explicit configuration wins;
- * otherwise it is derived from the request, because a tunnel's hostname is not
- * knowable at build time.
+ * The origin used to build the controller QR URL. See `origin.ts` — a phone that
+ * scans a `localhost` code reaches its own localhost and shows a blank screen.
  */
-const originFromHeaders = (headers: Record<string, unknown>): string => {
-  if (CONFIG.publicOrigin) return CONFIG.publicOrigin.replace(/\/$/, '');
-  const host = String(headers['x-forwarded-host'] ?? headers.host ?? `localhost:${CONFIG.port}`);
-  const proto = String(headers['x-forwarded-proto'] ?? (host.includes('localhost') ? 'http' : 'https'));
-  return `${proto}://${host}`;
-};
+const originFromHeaders = (headers: Record<string, unknown>): string =>
+  resolveOrigin(headers, {
+    configured: CONFIG.publicOrigin,
+    lan: LAN,
+    port: CONFIG.port,
+  });
 
 const connOrigin = new WeakMap<Conn, string>();
 sessions.originFor = (conn) => connOrigin.get(conn) ?? `http://localhost:${CONFIG.port}`;
@@ -191,8 +193,13 @@ try {
   log.info(`commentary: ${aiStatus()}`);
   if (!CONFIG.publicOrigin) {
     log.info(
-      'RALLY_PUBLIC_ORIGIN is unset; QR codes will use the request host. ' +
-        'Set it to your HTTPS tunnel origin — iOS will not grant motion permission over plain HTTP.',
+      LAN
+        ? `RALLY_PUBLIC_ORIGIN is unset; QR codes will point at http://${LAN}:${CONFIG.port} ` +
+          'so a phone on the same wifi can reach them. For motion sensors a phone also needs ' +
+          'HTTPS: run `npm run tunnel` and set RALLY_PUBLIC_ORIGIN to the tunnel URL.'
+        : 'RALLY_PUBLIC_ORIGIN is unset and no LAN address was found; QR codes will point at ' +
+          'localhost, which a phone cannot reach. Run `npm run tunnel` and set ' +
+          'RALLY_PUBLIC_ORIGIN to the tunnel URL.',
     );
   }
 } catch (err) {
