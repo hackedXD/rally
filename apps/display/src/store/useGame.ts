@@ -36,6 +36,14 @@ export interface GameState {
   error: string | null;
   showTune: boolean;
   showVirtual: boolean;
+  /**
+   * Whether the coached overlay is running.
+   *
+   * Deliberately not a game mode: the match underneath is an ordinary one
+   * against a weak bot, and this flag only decides whether anything is drawn on
+   * top of it. See `ui/tutorial.ts`.
+   */
+  tutorial: boolean;
   tuning: Record<string, number>;
   /** Rolling log of the last few events, for the debug overlay. */
   recent: GameEvent[];
@@ -56,6 +64,7 @@ export interface GameState {
   setError(error: string | null): void;
   toggleTune(): void;
   toggleVirtual(): void;
+  setTutorial(on: boolean): void;
   setTuning(values: Record<string, number>): void;
   pushEvent(e: GameEvent): void;
   setNet(rtt: number, offset: number): void;
@@ -78,6 +87,7 @@ export const useGame = create<GameState>((set) => ({
   error: null,
   showTune: false,
   showVirtual: false,
+  tutorial: false,
   tuning: {},
   recent: [],
   rtt: 0,
@@ -105,6 +115,7 @@ export const useGame = create<GameState>((set) => ({
   setError: (error) => set({ error }),
   toggleTune: () => set((s) => ({ showTune: !s.showTune })),
   toggleVirtual: () => set((s) => ({ showVirtual: !s.showVirtual })),
+  setTutorial: (tutorial) => set({ tutorial }),
   setTuning: (tuning) => set({ tuning }),
   pushEvent: (e) => set((s) => ({ recent: [...s.recent.slice(-11), e] })),
   setNet: (rtt, offset) => set({ rtt, offset }),
@@ -115,6 +126,7 @@ export const useGame = create<GameState>((set) => ({
       subtitle: null,
       banner: null,
       recent: [],
+      tutorial: false,
       lobbyStatus: { text: '', progress: 0, done: false },
     }),
 }));

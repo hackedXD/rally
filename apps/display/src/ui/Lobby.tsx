@@ -27,6 +27,7 @@ interface Props {
   client: RallyClient;
   onStart: () => void;
   onPlayHere: () => void;
+  onTutorial: () => void;
 }
 
 /** A phone will not grant motion access to a page served over plain HTTP. */
@@ -93,7 +94,7 @@ function CopyButton({ text, label = 'Copy invite link' }: { text: string; label?
   );
 }
 
-export function Lobby({ client, onStart, onPlayHere }: Props) {
+export function Lobby({ client, onStart, onPlayHere, onTutorial }: Props) {
   const room = useGame((s) => s.room);
   const sport = useGame((s) => s.sport);
   const sports = useGame((s) => s.sports);
@@ -179,6 +180,14 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
               </button>
               <button onClick={() => client.addBot(0.55)} disabled={preparing || paired === 2}>
                 Add bot
+              </button>
+              {/*
+                * First time here? This is the button. It pairs whatever you have
+                * — a phone if one is on your seat, the mouse if not — puts a weak
+                * bot opposite, and coaches you through a real match.
+                */}
+              <button onClick={onTutorial} disabled={preparing}>
+                Tutorial
               </button>
               <div className="spacer" />
               <span style={{ fontSize: 12, color: 'var(--dim)' }}>

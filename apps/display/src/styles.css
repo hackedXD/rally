@@ -399,3 +399,91 @@ button.copied { border-color: var(--accent); color: var(--accent); background: r
 .timing-ring.now { border-color: #fff; box-shadow: 0 0 26px rgba(255, 255, 255, 0.45); }
 .timing-ring.now i { border-color: #fff; opacity: 1; }
 
+/* ── The tutorial overlay ──────────────────────────────────────────────────────
+   Bottom-left, clear of everything that matters: the scoreboard is top-centre,
+   the commentary subtitle bottom-centre, and the timing ring lives where the
+   player is already looking. A coach that covers the ball is not a coach. */
+.tutorial {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 12;
+  pointer-events: none;
+}
+.tut-card {
+  position: relative;
+  max-width: 310px;
+  padding: 14px 16px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(74, 222, 128, 0.28);
+  background: rgba(10, 16, 22, 0.86);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+.tut-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.tut-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.tut-count {
+  font: 600 11px/1 ui-monospace, monospace;
+  color: var(--dim);
+}
+.tut-title {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #eaf3fb;
+}
+.tut-detail {
+  margin-top: 5px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--dim);
+}
+/* Progress as dots rather than a bar: there are six steps, and six dots say
+   "nearly there" at a glance in a way a 83%-full bar does not. */
+.tut-dots {
+  display: flex;
+  gap: 5px;
+  margin-top: 12px;
+}
+.tut-dots i {
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  background: #253141;
+  transition: background 0.2s;
+}
+.tut-dots i.done { background: rgba(74, 222, 128, 0.55); }
+.tut-dots i.now { background: var(--accent); }
+.tut-skip {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: transparent;
+  cursor: pointer;
+}
+/* The skip control only appears on hover. It has to exist — a tutorial you
+   cannot leave is a trap — but offering it before the player has read the first
+   instruction invites them to skip a thing they have not seen. */
+.tut-card:hover .tut-skip { color: var(--dim); }
+.tut-card:hover .tut-count { opacity: 0; }
+.tut-skip:hover { color: #eaf3fb; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tut-dots i { transition: none; }
+}

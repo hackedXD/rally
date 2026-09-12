@@ -27,6 +27,7 @@ That plays the whole game with a mouse — no phone required. For the real thing
 |---|---|
 | **Sports** | Pickleball and badminton share one code path — two different courts, two different swings. Table tennis has its own engine: a regulation table, a ball that carries spin, and a bat with a position you have to put on the ball. Bowling ships as a compiling interface stub — see [Adding a sport](#adding-a-sport). |
 | **Controllers** | An iPhone held like a paddle, or a mouse. Both speak the identical protocol; the server cannot tell them apart. |
+| **Tutorial** | A coached first match against a weak bot. It reads the live game rather than scripting one, so what it teaches is the game you then play. |
 | **Opponent** | Another human across the internet, or a built-in bot with a difficulty dial. |
 | **Commentary** | Works with no API keys at all. Add a Gemini key and an ElevenLabs key and the same pipeline upgrades in place. |
 | **Tests** | 140 covering both physics engines, the shot solver, the spin model, sensor fusion, the protocol, the commentary, and full matches over real WebSockets. |
@@ -188,6 +189,41 @@ mid-match degrades the commentary and never the match.
 so they are sanitised to `[A-Za-z0-9 '-]` and capped at 16 characters. Generated
 lines pass an output filter as well as a prompt ceiling, and <kbd>M</kbd> mutes the
 commentator instantly.
+
+---
+
+## The tutorial
+
+A button in the lobby. It pairs whatever you have — a phone if one is on your
+seat, the mouse if not — puts a bot at 0.25 skill opposite, and starts an
+ordinary match with a checklist drawn over it.
+
+It is **not a sandbox**, and that is the design rather than a shortcut. A sandbox
+has to be built, kept in step with the game, and then thrown away by the player
+the moment it ends — and the thing it teaches is the sandbox. Every step here is
+satisfied by the same events and snapshots the scoreboard already reads, so the
+tutorial is a reading of the game rather than a second copy of it. It also cannot
+drift: if serving changes, the serve step changes with it, because the step *is*
+"the simulation emitted a serve from your seat".
+
+Three decisions in it are worth stating, because the obvious alternative to each
+was tried first and was wrong:
+
+- **The checklist is cumulative.** A step asks "have you done this yet?", never
+  "have you done this since I asked?". Serving comes round every few points and
+  the game serves for you if you wait — so under the stricter reading a player
+  who served while still reading step one had that serve discarded, and then sat
+  on "swing to serve" through two more points of somebody else's service.
+- **It watches orientation, not position.** In every sport but table tennis the
+  player's position is chosen by the simulation, so "move to aim" would have
+  ticked itself the moment a rally started and congratulated the player for
+  something the game did.
+- **Steps have a dwell floor.** A cumulative checklist can otherwise tick three
+  boxes in one frame and show none of them long enough to read.
+
+Table tennis gets different words throughout: it has no telegraph ring to point
+at, and a tutorial that mentioned one would be teaching a control that is not on
+screen.
 
 ---
 

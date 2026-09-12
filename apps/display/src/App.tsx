@@ -30,6 +30,7 @@ import { EndCard } from './ui/EndCard.jsx';
 import { Hud } from './ui/Hud.jsx';
 import { Lobby } from './ui/Lobby.jsx';
 import { TimingRing } from './ui/TimingRing.jsx';
+import { Tutorial } from './ui/Tutorial.jsx';
 import { TunePanel } from './ui/TunePanel.jsx';
 import { VirtualPanel } from './ui/VirtualPanel.jsx';
 
@@ -107,6 +108,9 @@ export function App() {
       onEvent: (e) => handleEvent(e),
       onMatchEnd: (winner, final, summary) => {
         useGame.getState().setResult(winner, final, summary);
+        // The coach stops when the match does, or its card sits over the end
+        // card telling somebody to win a point that is no longer available.
+        useGame.getState().setTutorial(false);
         feel.cancelReplay();
       },
       onLobbyStatus: (text, progress, done) => {
@@ -338,6 +342,40 @@ export function App() {
 
   useEffect(() => () => virtual.current?.disconnect(), []);
 
+  /**
+   * Start the coached match.
+   *
+   * Everything here is an ordinary lobby action — pair something to your seat,
+   * put a weak bot opposite, start. The tutorial itself is drawn on top and
+   * changes nothing about the match, which is what stops it from teaching a game
+   * nobody afterwards gets to play.
+   */
+  /*
+   * Stable, and it has to be. The overlay runs its checklist on an interval
+   * keyed to its props, and App re-renders on every event, ping and subtitle —
+   * an inline arrow here hands it a new identity several times a second, which
+   * tears the interval down before it can ever fire. The tutorial then shows
+   * step one forever while the player does everything right.
+   */
+  const endTutorial = useCallback(() => useGame.getState().setTutorial(false), []);
+
+  const startTutorial = useCallback(() => {
+    void unlockAudio();
+    const g = useGame.getState();
+    // A phone already paired stays the controller; without one the mouse takes
+    // the seat, so pressing Tutorial always produces something playable rather
+    // than an instruction to go and find a phone first.
+    if (!g.room?.seats.some((s) => lane(s.seat) === lane(g.room?.seat ?? 0) && s.paired)) {
+      playHere();
+    }
+    // 0.25, not the usual 0.55. A tutorial you lose every point of teaches
+    // nothing but that the game is hard.
+    client.addBot(0.25);
+    g.setTutorial(true);
+    client.start();
+  }, [client, unlockAudio, playHere]);
+
+
   // Moving to a friend's room leaves the mouse controller paired to the old one,
   // holding a seat in a room nobody is looking at any more.
   const roomCode = store.room?.code;
@@ -373,8 +411,18 @@ export function App() {
       </div>
 
       {playing && <Hud client={client} ownSeat={ownSeat} />}
+      {playing && store.tutorial && (
+        <Tutorial client={client} ownSeat={ownSeat} sport={store.sport} onDone={endTutorial} />
+      )}
       {playing && pingpong && <TimingRing client={client} ownSeat={ownSeat} />}
-      {!playing && <Lobby client={client} onStart={startMatch} onPlayHere={playHere} />}
+      {!playing && (
+        <Lobby
+          client={client}
+          onStart={startMatch}
+          onPlayHere={playHere}
+          onTutorial={startTutorial}
+        />
+      )}
       {store.screen === 'over' && (
         <EndCard
           ownSeat={ownSeat}
