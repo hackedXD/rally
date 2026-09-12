@@ -16,7 +16,8 @@
 import { Calibrator } from '@rally/motion';
 import { TUNING, sanitizeName, type CueKind, type Seat } from '@rally/protocol';
 import { haptics } from './haptics.js';
-import { ControllerNet, readPairing, wsUrl, type LiteState } from './net.js';
+import { ControllerNet, type LiteState } from './net.js';
+import { readPairing, wsUrl } from './url.js';
 import {
   detectAccelSign,
   reacquireWakeLock,
@@ -183,6 +184,16 @@ function startCalibration(): void {
 
 // ── Connect and play ──────────────────────────────────────────────────────────
 
+/** Errors that genuinely end the session. Everything else is worth a log line. */
+const FATAL_ERRORS = new Set(['NO_ROOM', 'BAD_TOKEN', 'EXPIRED', 'SEAT_TAKEN', 'NO_SEAT']);
+const FATAL_TITLES: Record<string, string> = {
+  NO_ROOM: 'Room not found',
+  BAD_TOKEN: 'Code not valid',
+  EXPIRED: 'Code expired',
+  SEAT_TAKEN: 'Seat already taken',
+  NO_SEAT: 'No such seat',
+};
+
 function connect(): void {
   screen = 'playing';
   net = new ControllerNet(wsUrl(), pairing!, {
@@ -220,7 +231,14 @@ function connect(): void {
       renderPlay();
     },
     onError: (code, message) => {
-      renderFatal(code === 'SEAT_TAKEN' ? 'Seat already taken' : 'Cannot join', message);
+      // Only give up on errors that actually end the session. A transient
+      // complaint — a message that arrived in the wrong order, say — must not
+      // tear down a working connection and strand the player on an error screen.
+      if (!FATAL_ERRORS.has(code)) {
+        console.warn('[rally] server error:', code, message);
+        return;
+      }
+      renderFatal(FATAL_TITLES[code] ?? 'Cannot join', message);
       net?.close();
       net = null;
     },

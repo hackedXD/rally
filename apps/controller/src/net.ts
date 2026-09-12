@@ -4,6 +4,10 @@
  * Two rules from §8.1.4 shape everything here: never block the sensor callback on
  * network work, and send SWING immediately and unbatched — it is the one
  * latency-critical message in the whole protocol.
+ *
+ * Deliberately free of DOM dependencies beyond `WebSocket`: the URL helpers live
+ * in `url.ts`. That is what lets a test drive this exact class against a real
+ * server, which is the only way a message-ordering bug is ever caught.
  */
 
 import {
@@ -71,7 +75,12 @@ export class ControllerNet {
 
     ws.onopen = () => {
       this.attempts = 0;
-      this.handlers.onState('open');
+
+      // HELLO goes out FIRST, before anything else and before the app is told the
+      // socket is open. The server rejects any message from a connection that has
+      // not identified itself, and the app's own 'open' handler sends CALIBRATED
+      // and READY synchronously — so notifying it first puts those on the wire
+      // ahead of the handshake and the server answers "send HELLO first".
       this.send({
         t: 'HELLO',
         role: 'controller',
@@ -84,6 +93,8 @@ export class ControllerNet {
       // Pose at 30 Hz, not 60: battery and thermals matter over a long demo day,
       // and display-side smoothing makes it visually indistinguishable.
       this.poseTimer = setInterval(() => this.flushPose(), 1000 / TUNING.net.poseHz);
+
+      this.handlers.onState('open');
     };
 
     ws.onmessage = (ev) => {
@@ -207,28 +218,4 @@ export class ControllerNet {
   get rtt(): number {
     return this.clock.rtt;
   }
-}
-
-/** Same-origin WebSocket URL, so a tunnel needs no configuration. */
-export function wsUrl(): string {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${location.host}/ws`;
-}
-
-/**
- * Parse the pairing out of the URL FRAGMENT.
- *
- * The token is in the fragment and not the query string on purpose: fragments are
- * not sent to the server in the HTTP request line, so a single-use pair token
- * never lands in an access log.
- */
-export function readPairing(): Pairing | null {
-  const frag = location.hash.replace(/^#/, '');
-  if (!frag) return null;
-  const params = new URLSearchParams(frag);
-  const room = params.get('r');
-  const seat = Number(params.get('s'));
-  const token = params.get('t');
-  if (!room || !token || !Number.isInteger(seat) || seat < 0 || seat > 3) return null;
-  return { room: room.toUpperCase(), seat: seat as Seat, token };
 }

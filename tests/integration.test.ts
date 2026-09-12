@@ -11,6 +11,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { getSport } from '@rally/sim';
+import { ControllerNet } from '../apps/controller/src/net.js';
 import {
   ClockSync,
   TUNING,
@@ -394,6 +395,91 @@ describe('pairing and a full match', () => {
     display.close();
     phone.close();
   }, 280_000);
+});
+
+describe('the real phone client', () => {
+  /**
+   * Drives `ControllerNet` — the actual class the phone runs — rather than a
+   * hand-rolled test client.
+   *
+   * Regression: the app's own 'open' handler sends CALIBRATED and READY
+   * synchronously, and the client used to notify it BEFORE sending HELLO. That
+   * put two messages on the wire ahead of the handshake, the server answered
+   * "send HELLO first", and the phone showed an error screen instead of joining.
+   * A bespoke test client cannot catch that, because it builds its own ordering.
+   */
+  it('pairs, syncs and plays without a protocol error', async () => {
+    const display = new Client('display');
+    await display.open();
+    display.send({ t: 'HELLO', role: 'display' });
+    await display.waitFor('WELCOME');
+    display.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
+    const state = await display.waitFor('ROOM_STATE');
+
+    const seen: string[] = [];
+    const errors: { code: string; message: string }[] = [];
+    let paired = false;
+    let lite = 0;
+
+    const net = new ControllerNet(
+      WS,
+      { room: state.room, seat: 0, token: state.pairToken },
+      {
+        onState: (s) => {
+          seen.push(s);
+          // Exactly what the app does here, and the shape of the original bug.
+          if (s === 'open') {
+            net.calibrated(0.1);
+            net.ready('Ada');
+          }
+        },
+        onPaired: () => {
+          paired = true;
+        },
+        onCue: () => undefined,
+        onLite: () => {
+          lite++;
+        },
+        onError: (code, message) => errors.push({ code, message }),
+      },
+    );
+    net.connect();
+
+    const deadline = Date.now() + 10_000;
+    while (!paired && Date.now() < deadline) await sleep(25);
+
+    expect(errors, JSON.stringify(errors)).toEqual([]);
+    expect(paired).toBe(true);
+    expect(seen).toContain('open');
+
+    // The clock converges off the client's own ping loop.
+    await sleep(TUNING.net.pingIntervalMs * 2 + 500);
+    expect(net.clock.isSynced).toBe(true);
+
+    // And READY actually registered, rather than being dropped before HELLO.
+    display.send({ t: 'ADD_BOT', skill: 0.5 });
+    await sleep(300);
+    const latest = [...display.inbox]
+      .reverse()
+      .find((m): m is Extract<S2D, { t: 'ROOM_STATE' }> => m.t === 'ROOM_STATE')!;
+    expect(latest.seats[0].ready).toBe(true);
+    expect(latest.seats[0].name).toBe('Ada');
+
+    // Pose and swings flow, and the phone gets its score feed back.
+    display.send({ t: 'START' });
+    await display.waitFor('MATCH_START', 20_000);
+    for (let i = 0; i < 5; i++) {
+      net.pose(qFromUnitZTo(vnorm([0, 0.25, 1])), performance.now());
+      await sleep(60);
+    }
+    net.serve();
+    await sleep(800);
+    expect(lite).toBeGreaterThan(0);
+    expect(errors).toEqual([]);
+
+    net.close();
+    display.close();
+  }, 60_000);
 });
 
 describe('protocol hardening', () => {
