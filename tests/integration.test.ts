@@ -392,7 +392,11 @@ describe('pairing and a full match', () => {
       await sleep(16);
     }
 
-    const end = await display.waitFor('MATCH_END', 20_000);
+    // Generous, and it has to be: every point now carries the ready-up beat —
+    // up to a LITE interval waiting for the tap, then `serve.readyDelayMs` — and
+    // a match to 11 pays that twenty-odd times. This runs against a real socket
+    // and a real clock, so the budget is wall time, not ticks.
+    const end = await display.waitFor('MATCH_END', 120_000);
     expect([0, 1]).toContain(end.winner);
     expect(end.final[0] + end.final[1]).toBeGreaterThan(6);
     expect(end.summary.length).toBeGreaterThan(0);
@@ -537,7 +541,7 @@ describe('the real phone client', () => {
 
     net.close();
     display.close();
-  }, 60_000);
+  }, 180_000);
 });
 
 describe('match completion', () => {
