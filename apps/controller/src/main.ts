@@ -169,7 +169,7 @@ function startCalibration(): void {
   ring.innerHTML = `
     <svg width="190" height="190" viewBox="0 0 190 190">
       <circle cx="95" cy="95" r="84" fill="none" stroke="rgba(255,255,255,0.26)" stroke-width="10"/>
-      <circle id="arc" cx="95" cy="95" r="84" fill="none" stroke="#e3ff33" stroke-width="10"
+      <circle id="arc" cx="95" cy="95" r="84" fill="none" stroke="#FDB515" stroke-width="10"
               stroke-linecap="butt" stroke-dasharray="528" stroke-dashoffset="528"/>
     </svg>
     <div class="pct">0%</div>`;

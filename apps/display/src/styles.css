@@ -37,17 +37,18 @@
    * off this element at boot so the 3D court is painted from the same values —
    * the same trick `courts.ts` uses to keep its dimensions from drifting.
    */
-  --court: #00c65a;
-  --court-alt: #12d96b;
-  --kitchen: #00a24a;
-  --apron: #0b49d0;
-  --apron-deep: #0a2e8a;
+  --court: #009647;
+  --court-alt: #00a84f;
+  --kitchen: #00753a;
+  --apron: #043673;
+  --apron-deep: #02224a;
   --line: #ffffff;
-  --ink: #04220f;
-  --ink-blue: #04143a;
-  --optic: #e3ff33;
+  --ink: #011206;
+  --ink-blue: #031a3a;
+  --optic: #FDB515;
   --chalk: #e8f0ff;
-  --flag: #ff4d2e;
+  --flag: #C41230;
+  --flag-bright: #EF3A47;
 
   /* Tape comes in exactly two weights. A third would stop reading as tape. */
   --tape: 4px;
@@ -69,7 +70,7 @@ html, body, #root {
   overflow: hidden;
   /* Matches --apron. Hard-coded so the first paint before CSS variables resolve
      is the apron blue rather than a white flash on a demo projector. */
-  background: #0b49d0;
+  background: #043673;
   color: var(--chalk);
   font-family: var(--text);
   font-synthesis-weight: none;

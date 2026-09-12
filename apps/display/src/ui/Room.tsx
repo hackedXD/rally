@@ -66,7 +66,7 @@ function Qr({ url, size = 512 }: { url: string; size?: number }) {
       margin: 1,
       // Ink on tape. A QR wants maximum contrast far more than it wants to match
       // the palette, and a mis-scanned code is the one failure with no recovery.
-      color: { dark: '#04143a', light: '#ffffff' },
+      color: { dark: '#031a3a', light: '#ffffff' },
       errorCorrectionLevel: 'M',
     }).then(() => {
       // The library writes inline `width`/`height` in pixels, and an inline style

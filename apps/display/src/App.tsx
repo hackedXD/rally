@@ -416,7 +416,7 @@ export function App() {
         {/*
           * Tone mapping off, deliberately. The filmic curve three.js defaults to
           * is built for photographic range, and it desaturates flat colour on the
-          * way through — a court painted #00c65a arrived on screen as a pastel.
+          * way through — a court painted #009647 arrived on screen as a pastel.
           * The whole world here is flat acrylic paint, so the pixels should be
           * the paint.
           */}

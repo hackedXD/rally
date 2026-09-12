@@ -257,18 +257,22 @@ export const LOOKS: Record<SportId, CourtLook> = {
     get groundInk() { return PALETTE.line; },
     get surfaceInk() { return PALETTE.line; },
   },
-  // Blue in-bounds against a green apron: the same two fields as pickleball,
-  // swapped, so the two 13-metre courts are never mistaken for each other in the
-  // half second the carousel takes to re-stripe between them.
+  // One ground for every sport: the tartan's blue field runs behind all of them,
+  // so the world does not change colour when the carousel re-stripes. Badminton
+  // stays distinguishable from pickleball the way a real hall does — a lighter
+  // in-bounds green inside the same surround, with its own forecourt band —
+  // rather than by swapping the whole room to green for one sport.
   badminton: {
-    get surface() { return PALETTE.apron; },
-    get surfaceEdge() { return PALETTE.court; },
-    get zone() { return PALETTE.apronDeep; },
+    get surface() { return PALETTE.courtAlt; },
+    get surfaceEdge() { return PALETTE.apron; },
+    get zone() { return PALETTE.kitchen; },
     get line() { return PALETTE.line; },
-    get surround() { return PALETTE.court; },
+    get surround() { return PALETTE.apron; },
     get accent() { return PALETTE.optic; },
-    get groundInk() { return PALETTE.inkBlue; },
-    get surfaceInk() { return PALETTE.line; },
+    // The ground is blue now, so the ink that sits on it is the one blue can
+    // hold. See The Ground Decides The Ink Rule.
+    get groundInk() { return PALETTE.line; },
+    get surfaceInk() { return PALETTE.ink; },
   },
   bowling: {
     get surface() { return PALETTE.courtAlt; },

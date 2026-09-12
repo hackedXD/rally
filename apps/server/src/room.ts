@@ -749,15 +749,35 @@ export class Room {
   tick(dt: number, now: Millis): void {
     if (this.phase !== 'live') return;
 
-    // Disconnect handling: freeze rather than forfeit, then award after the grace
-    // window expires.
+    // Disconnect handling: freeze while they might come back, then let the match
+    // carry on without them.
+    //
+    // A closed tab used to END THE GAME — the grace window expired and the match
+    // was awarded to whoever was left. That is the wrong size of consequence for
+    // a phone locking its screen or Safari reaping a background tab, and it
+    // punished the player still standing there as much as the one who left: their
+    // match is over and the scoreline is not one either of them played to.
+    //
+    // A bot takes the empty seat instead. Play continues, the score stands, and
+    // the seat is still there to be re-paired — which is all "disconnect the
+    // phone" ever needed to mean.
     let paused = false;
     for (const slot of this.slots) {
       if (slot.bot) continue;
       if (slot.droppedAt !== null) {
         if (now - slot.droppedAt > TUNING.net.disconnectGraceMs) {
-          this.awardByDefault(otherSeat(slot.seat));
-          return;
+          logger.info(`${this.code}: seat ${slot.seat} did not come back; a bot takes over`);
+          slot.controller = null;
+          slot.droppedAt = null;
+          slot.pointReady = false;
+          this.seatBot(slot, TUNING.bot.skill);
+          // A fresh token, because the old one is spent: pair tokens are
+          // single-use, and the QR the display goes back to showing has to work.
+          slot.pairToken = shortId(22, Math.random);
+          slot.tokenUsed = false;
+          slot.tokenExpires = this.now() + PAIR_TOKEN_TTL_MS;
+          this.broadcastRoomState();
+          continue;
         }
         paused = true;
       }
@@ -880,17 +900,6 @@ export class Room {
       `${this.code}: match finished ${this.match.getScore().points.join('-')} ` +
         `to ${this.names()[lane(winner)]}`,
     );
-  }
-
-  private awardByDefault(winner: Seat): void {
-    logger.warn(`${this.code}: seat ${otherSeat(winner)} never came back; awarding the match`);
-    this.toDisplays({
-      t: 'MATCH_END',
-      winner,
-      final: [...this.match.getScore().points] as [number, number],
-      summary: [`${this.names()[lane(otherSeat(winner))]} disconnected.`],
-    });
-    this.phase = 'finished';
   }
 
   /**

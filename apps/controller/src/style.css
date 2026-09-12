@@ -26,16 +26,17 @@
 }
 
 :root {
-  --court: #00c65a;
-  --kitchen: #00a24a;
-  --apron: #0b49d0;
-  --apron-deep: #0a2e8a;
+  --court: #009647;
+  --kitchen: #00753a;
+  --apron: #043673;
+  --apron-deep: #02224a;
   --line: #ffffff;
-  --ink: #04220f;
-  --ink-blue: #04143a;
-  --optic: #e3ff33;
+  --ink: #011206;
+  --ink-blue: #031a3a;
+  --optic: #FDB515;
   --chalk: #e8f0ff;
-  --flag: #ff4d2e;
+  --flag: #C41230;
+  --flag-bright: #EF3A47;
 
   --tape: 4px;
   --display: 'Bungee', system-ui, sans-serif;
@@ -269,7 +270,7 @@ html, body {
   font-size: 13px; font-weight: 700;
   letter-spacing: 0.04em; text-transform: uppercase;
 }
-.lamp i { width: 11px; height: 11px; border-radius: 50%; background: #0a2e8a;
+.lamp i { width: 11px; height: 11px; border-radius: 50%; background: var(--apron-deep);
   border: 2px solid var(--label-dim, #9fb2e8); flex: none; }
 .lamp.on { border-color: var(--line); color: var(--line); }
 .lamp.on i { background: var(--optic); border-color: var(--optic); }

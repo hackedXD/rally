@@ -21,28 +21,28 @@ export interface Palette {
   /** Out-of-bounds apron, and the world behind it. */
   apron: string;
   apronDeep: string;
-  /** Tape. Never type on the green — it measures 2.28:1. */
+  /** Tape. Never type on the green — it measures 3.85:1. */
   line: string;
   ink: string;
   inkBlue: string;
-  /** The ball, and the only thing allowed to signal "live". */
+  /** Gold Thread. The ball, and the only thing allowed to signal "live". */
   optic: string;
   chalk: string;
   flag: string;
 }
 
 export const PALETTE: Palette = {
-  court: '#00c65a',
-  courtAlt: '#12d96b',
-  kitchen: '#00a24a',
-  apron: '#0b49d0',
-  apronDeep: '#0a2e8a',
+  court: '#009647',
+  courtAlt: '#00a84f',
+  kitchen: '#00753a',
+  apron: '#043673',
+  apronDeep: '#02224a',
   line: '#ffffff',
-  ink: '#04220f',
-  inkBlue: '#04143a',
-  optic: '#e3ff33',
+  ink: '#011206',
+  inkBlue: '#031a3a',
+  optic: '#FDB515',
   chalk: '#e8f0ff',
-  flag: '#ff4d2e',
+  flag: '#C41230',
 };
 
 const VARS: Record<keyof Palette, string> = {

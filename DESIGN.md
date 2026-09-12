@@ -127,34 +127,51 @@ accent, and a system sans stack. Every one of those is forbidden below.
 
 ## Colors
 
-Municipal court acrylic: two saturated fields, white tape, and one signal colour
-borrowed from the ball.
+**The Carnegie Mellon tartan, painted as a court.** Andrew Carnegie's family
+tartan is a dark blue field, heavy green strokes crossing it, red stripes, and a
+bright yellow pinstripe through the middle — which is already this system: a
+ground, a playing surface, an opponent, and a live signal. Every value below is
+an official CMU brand hex or a measured variation of one.
 
-- **`court` #00c65a** — the in-bounds playing surface, and the ground of your own
-  side of the net. `kitchen` #00a24a paints the non-volley zone, which is a real
-  contrasting field on a real court, not a tint.
-- **`apron` #0b49d0** — out-of-bounds, and the world behind everything. It is the
-  page ground on both apps and the scene background, so the court floats on one
-  uninterrupted field. `apron-deep` #0a2e8a is the unlit version, used for a seat
-  nobody has taken yet.
+| Thread | Hex | Role here |
+|---|---|---|
+| Blue Thread | `#043673` | the ground, behind every sport |
+| Green Thread | `#009647` | the playing surface |
+| Gold Thread | `#FDB515` | the live signal |
+| Carnegie Red | `#C41230` | the opponent, and failure |
+| Scots Rose | `#EF3A47` | the brighter red, for hot states |
+| white | `#ffffff` | tape |
+
+- **`court` #009647** — Green Thread: the in-bounds playing surface, and the
+  ground of your own side of the net. `kitchen` #00753a paints the non-volley
+  zone, which is a real contrasting field on a real court, not a tint.
+  `court-alt` #00a84f is the lighter in-bounds green badminton is striped in.
+- **`apron` #043673** — Blue Thread: out-of-bounds, and the world behind
+  everything. It is the page ground on both apps and the scene background for
+  **every sport**, so the world does not change colour when the carousel
+  re-stripes. `apron-deep` #02224a is the unlit version, for a seat nobody has
+  taken yet.
 - **`line` #ffffff** — tape. Structural, never type on green (see the rule below).
-- **`optic` #e3ff33** — the ball. Reserved; see The Live Signal Rule.
-- **`ink` #04220f / `ink-blue` #04143a** — type on light paint, and the ground of
+- **`optic` #FDB515** — Gold Thread, the tartan's pinstripe, carried by the ball.
+  Reserved; see The Live Signal Rule.
+- **`ink` #011206 / `ink-blue` #031a3a** — type on light paint, and the ground of
   the two panels the system permits.
-- **`flag` #ff4d2e** — the opponent's kit, and genuine failure.
+- **`flag` #C41230** — Carnegie Red: the opponent's kit, and genuine failure.
+  `flag-bright` #EF3A47 (Scots Rose) is the same signal turned up.
 - **`chalk` #e8f0ff` / `label-dim` #9fb2e8** — body and subordinate labels on dark
   fields.
 
-**The White Is Tape Rule.** White on the court green measures **2.28:1**. It is a
-perfectly good painted line and an unreadable piece of text. White is therefore
-structural only: tape, borders, net. Type sitting on green is `ink` (7.43:1).
+**The White Is Tape Rule.** White on Green Thread measures **3.85:1**. It is a
+perfectly good painted line and a failing piece of body text. White is therefore
+structural only: tape, borders, net. Type sitting on green is `ink` (5.00:1).
 
 **The Ground Decides The Ink Rule.** The apron is not the same colour for every
 sport — badminton's is green, where white type fails. Each sport carries the ink
 its own grounds can hold: `groundInk` for the apron, `surfaceInk` for the playing
 surface, both on `CourtLook` in `apps/display/src/scene/court.ts`. UI reads them as
-`--on-ground` and `--on-surface`. Measured: ink on badminton green 7.91:1, white on
-pickleball blue 7.30:1, ink on pickleball green 7.43:1.
+`--on-ground` and `--on-surface`. Measured against the tartan: white on the blue ground 11.80:1, chalk on it
+10.30:1, dim labels on it 5.62:1, ink on the green surface 5.00:1, ink on Gold
+Thread 9.51:1, white on Carnegie Red 6.04:1.
 
 **The Live Signal Rule.** Optic yellow belongs to the ball and to the three things
 the ball's presence implies: the action that starts play, the commentator's live
