@@ -41,10 +41,20 @@ export const BALL_RADIUS: Record<SportId, number> = {
  * disc on a stub would throw away the most legible difference between the two
  * sports on screen.
  */
+/**
+ * How the head is built.
+ *
+ * Not a style flag — these are three different objects. A strung frame is a rim
+ * around a hole; a paddle is a flat slab with a rubber bumper right round its
+ * edge; a bat is a disc. Drawing any of them as another throws away the most
+ * legible difference between the sports on screen.
+ */
+export type RacketShape = 'paddle' | 'bat' | 'strung';
+
 export interface RacketLook {
-  /** Head radius, metres. */
+  /** Half the head's WIDTH, metres. Also the radius, for a round head. */
   headRadius: number;
-  /** Vertical stretch of the head. 1 is a round paddle; above 1 is an oval. */
+  /** Height as a multiple of the width. 1 is round; above 1 is taller than wide. */
   headOval: number;
   /** Frame thickness, metres. */
   thickness: number;
@@ -52,16 +62,145 @@ export interface RacketLook {
   shaft: number;
   /** Shoulder to racket centre. A badminton racket reaches a long way. */
   armLen: number;
-  /** A strung frame reads as an open face; a paddle reads as a solid one. */
-  strung: boolean;
+  /**
+   * Height the hand carries the racket at, metres.
+   *
+   * Swing style again, and it is not cosmetic: a shuttle is met above the head,
+   * a pickleball somewhere between the waist and the chest. Held at one height
+   * for every sport, a pickleball paddle sits exactly where the player's own
+   * head is drawn and disappears behind it from the broadcast camera.
+   */
+  holdHeight: number;
+  /**
+   * How far to the player's side the hand carries it, metres.
+   *
+   * Without this the racket is drawn on the body's own centre line and spends
+   * the match inside the capsule that represents the player — visible only when
+   * the swing animation happens to throw it clear. A hand is not in the middle
+   * of a chest.
+   *
+   * Mirrored per seat so both ends look the same from their own camera, and
+   * deliberately not tied to handedness: which hand somebody holds it in is not
+   * something the simulation knows.
+   */
+  holdSide: number;
+  shape: RacketShape;
+  /** Corner radius of a paddle face, metres. Ignored by the other shapes. */
+  cornerRadius?: number;
+  /** Width of a paddle's edge guard, metres. Ignored by the other shapes. */
+  guard?: number;
 }
 
 export const RACKETS: Record<SportId, RacketLook> = {
-  pickleball: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
-  tabletennis: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
-  badminton: { headRadius: 0.13, headOval: 1.14, thickness: 0.011, shaft: 0.34, armLen: 0.95, strung: true },
-  bowling: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
+  /*
+   * A regulation pickleball paddle, near enough. The rules cap length plus width
+   * at 24 inches and length at 17, and almost everything on the market lands at
+   * about 15.75 x 7.9 — so a 0.20 m wide, 0.27 m tall face over a 0.13 m handle
+   * is the real object rather than an approximation of one.
+   *
+   * The proportions are the whole point. It is noticeably TALLER than it is
+   * wide, which a disc cannot express, and it is the shape people recognise
+   * before they read anything else on screen.
+   */
+  pickleball: {
+    headRadius: 0.1,
+    headOval: 1.35,
+    thickness: 0.014,
+    shaft: 0.13,
+    armLen: 0.62,
+    // Chest height. Pickleball is played low — the kitchen rule is about keeping
+    // players off the net, and the dink that results is struck from the waist.
+    holdHeight: 0.95,
+    holdSide: 0.34,
+    shape: 'paddle',
+    cornerRadius: 0.045,
+    guard: 0.007,
+  },
+  // Table tennis has its own renderer entirely — see `PingPongScene`. This entry
+  // exists so the record is total, and is what a fallback would draw.
+  tabletennis: { headRadius: 0.077, headOval: 1, thickness: 0.02, shaft: 0.11, armLen: 0.55, holdHeight: 1.0, holdSide: 0.3, shape: 'bat' },
+  // Carried high, because that is where the shuttle is met.
+  badminton: { headRadius: 0.13, headOval: 1.14, thickness: 0.011, shaft: 0.34, armLen: 0.95, holdHeight: 1.2, holdSide: 0.3, shape: 'strung' },
+  bowling: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, holdHeight: 0.8, holdSide: 0.3, shape: 'bat' },
 };
+
+/**
+ * A pickleball paddle's face and its edge guard, as geometry.
+ *
+ * Built rather than composed from primitives because the shape IS the
+ * recognition: a rounded rectangle with a bumper round the rim, not a circle.
+ * Two pieces so they can take different materials — the face is the player's
+ * colour, the guard is the black rubber every paddle has.
+ *
+ * Both are centred on the origin and face down local +Z, which is the frame
+ * every other racket in this file uses.
+ */
+export function makePaddleGeometry(look: RacketLook): {
+  face: THREE.ExtrudeGeometry;
+  guard: THREE.ExtrudeGeometry;
+  dispose: () => void;
+} {
+  const w = look.headRadius * 2;
+  const h = w * look.headOval;
+  const r = look.cornerRadius ?? 0.04;
+  const g = look.guard ?? 0.006;
+
+  const face = new THREE.ExtrudeGeometry(roundedRect(w, h, r), {
+    depth: look.thickness,
+    bevelEnabled: true,
+    bevelThickness: 0.0015,
+    bevelSize: 0.0015,
+    bevelSegments: 2,
+    curveSegments: 10,
+  });
+  face.translate(0, 0, -look.thickness / 2);
+
+  // The guard is a ring: the outer outline with the face punched out of it. It
+  // stands a little proud of the face on both sides, which is exactly what the
+  // real thing does and what makes the edge read at a distance.
+  const outer = roundedRect(w + g * 2, h + g * 2, r + g);
+  outer.holes.push(roundedRect(w, h, r));
+  const depth = look.thickness * 1.5;
+  const guard = new THREE.ExtrudeGeometry(outer, {
+    depth,
+    bevelEnabled: false,
+    curveSegments: 10,
+  });
+  guard.translate(0, 0, -depth / 2);
+
+  return {
+    face,
+    guard,
+    dispose: () => {
+      face.dispose();
+      guard.dispose();
+    },
+  };
+}
+
+/**
+ * A rounded rectangle, centred on the origin.
+ *
+ * Wound counter-clockwise. `ExtrudeGeometry` uses the winding to decide which
+ * way the faces point, and a hole punched with the same winding as its outline
+ * is not a hole.
+ */
+function roundedRect(w: number, h: number, r: number): THREE.Shape {
+  const x = -w / 2;
+  const y = -h / 2;
+  const rad = Math.min(r, w / 2, h / 2);
+  const s = new THREE.Shape();
+  s.moveTo(x + rad, y);
+  s.lineTo(x + w - rad, y);
+  s.quadraticCurveTo(x + w, y, x + w, y + rad);
+  s.lineTo(x + w, y + h - rad);
+  s.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  s.lineTo(x + rad, y + h);
+  s.quadraticCurveTo(x, y + h, x, y + h - rad);
+  s.lineTo(x, y + rad);
+  s.quadraticCurveTo(x, y, x + rad, y);
+  return s;
+}
 
 export const LOOKS: Record<SportId, CourtLook> = {
   pickleball: {
@@ -71,13 +210,15 @@ export const LOOKS: Record<SportId, CourtLook> = {
     surround: '#123040',
     accent: '#4ade80',
   },
+  // Table tennis is not drawn from a `CourtLook` — `PingPongScene` builds real
+  // geometry instead. These are the lobby's colours for it, and the accent the
+  // HUD and the timing ring pick up.
   tabletennis: {
-    surface: '#15527d',
-    surfaceEdge: '#0e3d61',
-    line: '#ffffff',
-    // Light enough that the far half of the table does not disappear into it.
-    surround: '#111f33',
-    accent: '#38bdf8',
+    surface: '#10496e',
+    surfaceEdge: '#0a2438',
+    line: '#f2f6fa',
+    surround: '#0b0f14',
+    accent: '#7fd4ff',
   },
   badminton: {
     // Tournament mats are green or blue; green keeps it instantly distinct from

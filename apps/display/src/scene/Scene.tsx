@@ -29,6 +29,7 @@ import {
   cameraFor,
   makeCourtTexture,
   makeNetTexture,
+  makePaddleGeometry,
 } from './court.js';
 
 interface Props {
@@ -47,6 +48,14 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
   const racket = RACKETS[sport];
   const courtTex = useMemo(() => makeCourtTexture(court, look, sport), [court, look, sport]);
   const netTex = useMemo(() => makeNetTexture(), []);
+  // Built once per sport and shared by both seats' paddles, which is the whole
+  // reason it is not inline JSX: an extruded outline is not free, and there are
+  // two of them on screen.
+  const paddleGeo = useMemo(
+    () => (racket.shape === 'paddle' ? makePaddleGeometry(racket) : null),
+    [racket],
+  );
+  useEffect(() => () => paddleGeo?.dispose(), [paddleGeo]);
   useEffect(() => () => {
     courtTex.dispose();
     netTex.dispose();
@@ -219,8 +228,8 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
         // The paddle hangs off the hand, in front of the shoulder.
         const forward = tmpV.set(0, 0, 1).applyQuaternion(tmpQ);
         const shoulder = new THREE.Vector3(
-          p.p[0],
-          1.12,
+          p.p[0] + racket.holdSide * -seatSign(p.seat),
+          racket.holdHeight,
           p.p[2] + seatSign(p.seat) * -0.12,
         );
         let target = shoulder.clone().addScaledVector(forward, armLen);
@@ -466,7 +475,7 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
             </mesh>
           </group>
           <group ref={(g) => (paddles.current[i] = g)}>
-            {racket.strung ? (
+            {racket.shape === 'strung' ? (
               /*
                * A strung racket is a rim around a hole, and drawing it as a filled
                * disc like a paddle puts a black dinner plate over the player's
@@ -497,6 +506,37 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
                   />
                 </mesh>
               </group>
+            ) : racket.shape === 'paddle' && paddleGeo ? (
+              /*
+               * A pickleball paddle: a flat slab, taller than it is wide, with a
+               * black rubber bumper right round the rim. The bumper is not
+               * decoration — it is the single feature that makes the silhouette
+               * read as a pickleball paddle rather than as a large table tennis
+               * bat, and it is on every paddle ever sold.
+               *
+               * Both geometries are already centred and already face local +Z,
+               * so neither needs the rotation the disc below does.
+               */
+              <>
+                <mesh castShadow geometry={paddleGeo.face}>
+                  <meshStandardMaterial
+                    color={i === lane(ownSeat) ? '#2563eb' : '#be185d'}
+                    roughness={0.72}
+                    metalness={0.04}
+                  />
+                </mesh>
+                <mesh geometry={paddleGeo.guard}>
+                  <meshStandardMaterial color="#14181f" roughness={0.85} />
+                </mesh>
+                {/* The throat: a paddle's face does not meet its grip at a point. */}
+                <mesh
+                  position={[0, -(racket.headRadius * racket.headOval + 0.018), 0]}
+                  castShadow
+                >
+                  <boxGeometry args={[0.052, 0.04, racket.thickness * 1.4]} />
+                  <meshStandardMaterial color="#14181f" roughness={0.8} />
+                </mesh>
+              </>
             ) : (
               <>
                 {/*
@@ -533,6 +573,18 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
               <cylinderGeometry args={[0.014, 0.02, racket.shaft, 10]} />
               <meshStandardMaterial color="#111827" roughness={0.8} />
             </mesh>
+            {racket.shape === 'paddle' && (
+              // The butt cap. A paddle grip flares at the end so it cannot slide
+              // out of the hand, and the flare is visible from every angle the
+              // camera ever takes.
+              <mesh
+                position={[0, -(racket.headRadius * racket.headOval + racket.shaft), 0]}
+                castShadow
+              >
+                <cylinderGeometry args={[0.024, 0.021, 0.012, 12]} />
+                <meshStandardMaterial color="#0b0f14" roughness={0.9} />
+              </mesh>
+            )}
           </group>
         </group>
       ))}
