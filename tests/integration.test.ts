@@ -93,6 +93,15 @@ class Client {
         case 'EVENT':
           this.events.push(msg.e.type);
           break;
+        case 'LITE':
+          // Ready up, every point, exactly as the phone app does — the server
+          // holds the next serve until both bats are up. A test client that
+          // never tapped would be a phone nobody is holding, and nothing it did
+          // afterwards would tell us anything about the game.
+          if (this.seat !== null && !msg.ready[lane(this.seat)]) {
+            this.send({ t: 'READY_POINT' });
+          }
+          break;
         default:
           break;
       }
