@@ -1,16 +1,63 @@
+/*
+ * Rally — Court Lines.
+ *
+ * The interface IS the court surface. Flat acrylic paint in two saturated
+ * fields, 5 cm white tape as the only divider, optic yellow as the single live
+ * signal, and stencilled type sitting on the paint the way a sponsor name sits
+ * on a real court.
+ *
+ * Three rules run through everything here:
+ *
+ *   - A "card" is a taped region of paint. There is no blur, no glass, no
+ *     shadow-on-dark panel, and no rounded rectangle floating over a scene.
+ *   - White is tape, not type. White on the court green measures 2.28:1, which
+ *     is fine for a painted line and unreadable as text — type on green is ink.
+ *   - Nothing covers the court. The lobby is drawn ON the live 3D court, so the
+ *     carousel repaints the thing you are about to play on.
+ */
+
+@font-face {
+  font-family: 'Bungee';
+  src: url('/fonts/bungee-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122, U+2191, U+2193, U+2212;
+}
+@font-face {
+  font-family: 'Archivo';
+  src: url('/fonts/archivo-latin-var.woff2') format('woff2');
+  font-weight: 400 800;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122, U+2191, U+2193, U+2212;
+}
+
 :root {
-  --bg: #070b14;
-  --panel: rgba(10, 16, 28, 0.82);
-  --panel-solid: #0d1524;
-  --line: rgba(255, 255, 255, 0.1);
-  --text: #eaf0fb;
-  --dim: #8b9ab5;
-  --accent: #4ade80;
-  --accent2: #38bdf8;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  /*
+   * The paint. These five are the whole world, and `theme.ts` reads them back
+   * off this element at boot so the 3D court is painted from the same values —
+   * the same trick `courts.ts` uses to keep its dimensions from drifting.
+   */
+  --court: #00c65a;
+  --court-alt: #12d96b;
+  --kitchen: #00a24a;
+  --apron: #0b49d0;
+  --apron-deep: #0a2e8a;
+  --line: #ffffff;
+  --ink: #04220f;
+  --ink-blue: #04143a;
+  --optic: #e3ff33;
+  --chalk: #e8f0ff;
+  --flag: #ff4d2e;
+
+  /* Tape comes in exactly two weights. A third would stop reading as tape. */
+  --tape: 4px;
+  --tape-heavy: 9px;
+
+  --display: 'Bungee', 'Archivo', system-ui, sans-serif;
+  --text: 'Archivo', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
   color-scheme: dark;
+  accent-color: var(--optic);
 }
 
 * { box-sizing: border-box; }
@@ -20,470 +67,622 @@ html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Matches --apron. Hard-coded so the first paint before CSS variables resolve
+     is the apron blue rather than a white flash on a demo projector. */
+  background: #0b49d0;
+  color: var(--chalk);
+  font-family: var(--text);
+  font-synthesis-weight: none;
   -webkit-font-smoothing: antialiased;
 }
 
-button {
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  padding: 10px 16px;
-  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+::selection { background: var(--optic); color: var(--ink); }
+
+:focus-visible {
+  outline: var(--tape) solid var(--optic);
+  outline-offset: 3px;
 }
-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); border-color: rgba(255,255,255,0.24); }
-button:active:not(:disabled) { transform: translateY(1px); }
-button:disabled { opacity: 0.42; cursor: default; }
-button.primary {
-  background: linear-gradient(180deg, #34d399, #10b981);
-  border-color: #10b981;
-  color: #04130d;
-  font-weight: 650;
-}
-button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #4ade80, #14c98d); }
+
+/* The parts we did not draw still belong to the court. */
+* { scrollbar-color: var(--optic) var(--apron-deep); scrollbar-width: thin; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: var(--apron-deep); }
+*::-webkit-scrollbar-thumb { background: var(--optic); border: 2px solid var(--apron-deep); }
 
 .stage { position: fixed; inset: 0; }
 .canvas-wrap { position: absolute; inset: 0; }
 
-/* ── Heads-up display ─────────────────────────────────────────────────────── */
+/* ── Controls ─────────────────────────────────────────────────────────────────
+   A button is a painted box with taped edges. Square, because court paint is. */
+
+button {
+  font-family: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--line);
+  cursor: pointer;
+  border: var(--tape) solid var(--line);
+  background: transparent;
+  border-radius: 0;
+  padding: 12px 20px;
+  text-transform: uppercase;
+  transition: background 110ms ease, color 110ms ease, transform 70ms ease;
+}
+button:hover:not(:disabled) { background: var(--line); color: var(--ink-blue); }
+button:active:not(:disabled) { transform: translateY(2px); }
+button:disabled { opacity: 0.38; cursor: default; }
+
+/* The live signal. Optic yellow is the ball, and it marks exactly one thing per
+   screen: the action that starts play. */
+button.primary {
+  font-family: var(--display);
+  font-size: clamp(17px, 1.7vw, 23px);
+  letter-spacing: 0;
+  text-transform: none;
+  background: var(--optic);
+  border-color: var(--optic);
+  color: var(--ink);
+  padding: 16px 34px;
+}
+button.primary:hover:not(:disabled) { background: var(--line); border-color: var(--line); color: var(--ink); }
+button.primary:disabled { background: transparent; color: var(--optic); }
+
+/* ── The rack: choosing a sport ───────────────────────────────────────────────
+   Nothing is drawn over the court. The sport's name is stencilled across the
+   surface at sponsor scale and the real court behind it re-stripes as you move. */
+
+.rack {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: clamp(20px, 3vw, 40px);
+  pointer-events: none;
+}
+.rack > * { pointer-events: auto; }
+
+.wordmark {
+  font-family: var(--display);
+  font-size: clamp(19px, 2vw, 27px);
+  color: var(--line);
+  line-height: 1;
+  display: flex; align-items: center; gap: 12px;
+}
+/* The ball, and the only circle in the system. */
+.wordmark::after {
+  content: '';
+  width: 0.44em; height: 0.44em; border-radius: 50%;
+  background: var(--optic);
+}
+
+.rack-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+
+.rack-stage {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: clamp(12px, 2vw, 32px);
+  min-height: 0;
+}
+
+.rack-name {
+  font-family: var(--display);
+  /* Read from across a room, at the scale a sponsor name is painted on a court.
+     Deliberately past the usual display ceiling: this is the first viewport of a
+     game shown on a laptop somebody is standing away from. */
+  font-size: clamp(44px, 11.5vw, 168px);
+  line-height: 0.84;
+  color: var(--line);
+  text-align: center;
+  margin: 0;
+  text-wrap: balance;
+  /* The paint under the letters is doing the contrast work; this keeps the
+     stencil legible where a court line runs directly beneath a stroke. */
+  text-shadow: 0 0 calc(var(--tape) * 6) rgba(4, 20, 58, 0.55);
+}
+.rack-name.stub { color: var(--optic); }
+
+.rack-sub {
+  text-align: center;
+  font-size: clamp(14px, 1.4vw, 19px);
+  font-weight: 600;
+  color: var(--chalk);
+  margin: 14px auto 0;
+  max-width: 62ch;
+  line-height: 1.45;
+}
+
+.rack-arrow {
+  width: clamp(56px, 5vw, 78px); height: clamp(56px, 5vw, 78px);
+  padding: 0;
+  display: grid; place-items: center;
+  flex: none;
+}
+.rack-arrow svg { width: 44%; height: 44%; }
+
+.rack-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+
+/* The rack position, as the courts either side of this one. */
+.rack-markers { display: flex; gap: var(--tape); align-items: flex-end; }
+.rack-markers button {
+  width: clamp(40px, 4vw, 62px); height: 14px;
+  padding: 0; border: 0;
+  background: rgba(255, 255, 255, 0.34);
+  transition: background 140ms ease, height 140ms ease;
+}
+.rack-markers button:hover:not(:disabled) { background: var(--line); }
+.rack-markers button.on { background: var(--optic); height: 26px; }
+.rack-markers button.stub { background: rgba(255, 255, 255, 0.16); }
+
+/* ── The spec ticket ──────────────────────────────────────────────────────────
+   Real numbers, read from the same court spec the renderer builds from, taped to
+   the surface. It travels with its sport all the way into the match. */
+
+.ticket {
+  border: var(--tape) solid var(--line);
+  background: var(--ink-blue);
+  padding: 14px 18px;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 4px 26px;
+  font-variant-numeric: tabular-nums;
+}
+.ticket div { display: contents; }
+.ticket dt {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--optic);
+}
+.ticket dd { margin: 0; font-size: 15px; font-weight: 700; color: var(--line); text-align: right; }
+
+/* ── The room: two halves of one court ────────────────────────────────────────
+   The two cards are the two sides of the net, seen top-down. An empty side is
+   not a blank box — it is the same half painted unlit, with its own code taped
+   at the service line. */
+
+.room {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: clamp(16px, 2.4vw, 34px);
+  gap: clamp(12px, 1.6vw, 22px);
+  background: var(--apron);
+  overflow: auto;
+}
+
+.room-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.room-sport {
+  font-family: var(--display);
+  font-size: clamp(15px, 1.5vw, 21px);
+  color: var(--optic);
+  display: flex; align-items: center; gap: 10px;
+}
+
+.vs {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.half {
+  background: var(--court);
+  border: var(--tape) solid var(--line);
+  color: var(--ink);
+  padding: clamp(16px, 2vw, 30px);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 14px;
+  min-width: 0;
+}
+/* The far side of the net is the other paint field, so the two halves are never
+   mistaken for each other at a glance across a room. */
+.half.away { background: var(--apron-deep); color: var(--chalk); }
+/* Designed absence: an open seat is this half painted unlit, showing exactly
+   what will fill it. */
+.half.open { background: transparent; border-style: dashed; color: var(--chalk); }
+
+.half-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.seat-no {
+  font-family: var(--display);
+  font-size: clamp(34px, 4.4vw, 62px);
+  line-height: 0.8;
+}
+.half-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.badge {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 5px 9px;
+  border: 2px solid currentColor;
+}
+.badge.live { background: var(--optic); border-color: var(--optic); color: var(--ink); }
+
+.half-body { display: grid; align-content: center; justify-items: center; gap: 12px; text-align: center; min-height: 0; }
+
+.player-name {
+  font-family: var(--display);
+  font-size: clamp(22px, 3vw, 44px);
+  line-height: 1;
+  word-break: break-word;
+  max-width: 100%;
+}
+/* Edited exactly where it is displayed, because the thing being changed is the
+   name the commentator is about to say out loud. */
+input.player-name {
+  font-family: var(--display);
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-bottom: var(--tape) dashed currentColor;
+  text-align: center;
+  padding: 0 4px 4px;
+  width: 100%;
+  max-width: 11ch;
+  border-radius: 0;
+}
+input.player-name:focus { outline: none; border-bottom-style: solid; border-bottom-color: var(--optic); }
+
+.half-status { font-size: 14px; font-weight: 650; line-height: 1.4; max-width: 30ch; opacity: 0.92; }
+
+/* The QR is taped at the service line of the side it opens. */
+.pair { display: grid; justify-items: center; gap: 10px; }
+.pair-frame {
+  width: 100%; max-width: clamp(140px, 14vw, 212px);
+  aspect-ratio: 1;
+  background: var(--line);
+  padding: 10px;
+  border: var(--tape) solid var(--line);
+}
+.pair-frame canvas { width: 100%; height: 100%; display: block; }
+.pair-call {
+  font-family: var(--display);
+  font-size: clamp(13px, 1.15vw, 17px);
+  color: var(--optic);
+  text-align: center;
+}
+.pair-code {
+  font-family: var(--display);
+  font-size: clamp(20px, 2.2vw, 32px);
+  letter-spacing: 0.14em;
+  color: inherit;
+}
+
+/* The net. The one place the plane breaks, and where Start lives. */
+.net {
+  width: clamp(72px, 9vw, 150px);
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
+  justify-items: center;
+  gap: 12px;
+  padding: 0 clamp(8px, 1vw, 18px);
+}
+.net-cord { width: 100%; background: var(--line); height: var(--tape-heavy); align-self: start; }
+.net-mesh {
+  width: 100%;
+  /* A real mesh, not a decorative stripe: this is the net between the halves. */
+  background-image:
+    repeating-linear-gradient(to right, rgba(255,255,255,0.55) 0 2px, transparent 2px 11px),
+    repeating-linear-gradient(to bottom, rgba(255,255,255,0.55) 0 2px, transparent 2px 11px);
+}
+.net-start { display: grid; gap: 10px; justify-items: center; width: 100%; }
+
+.room-foot { display: grid; gap: 12px; }
+.room-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.room-actions .spacer { flex: 1; }
+
+.invite { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.code-plate {
+  display: flex; align-items: center; gap: 12px;
+  border: var(--tape) solid var(--line);
+  padding: 8px 16px;
+}
+.code-plate b {
+  font-family: var(--display);
+  font-size: clamp(19px, 2vw, 27px);
+  letter-spacing: 0.16em;
+  color: var(--optic);
+}
+.code-plate span { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--chalk); }
+
+.join { display: flex; gap: 10px; align-items: center; }
+.join input {
+  width: 8ch; padding: 11px 10px;
+  font-family: var(--display); font-size: 21px; letter-spacing: 0.16em; text-align: center;
+  background: var(--ink-blue); color: var(--line);
+  border: var(--tape) solid var(--line); border-radius: 0;
+  text-transform: uppercase;
+}
+.join input:focus { outline: none; border-color: var(--optic); }
+.join input::placeholder { color: rgba(232, 240, 255, 0.4); }
+
+button.copied { background: var(--optic); border-color: var(--optic); color: var(--ink); }
+
+.prep { display: grid; gap: 8px; }
+.prep-bar { height: var(--tape-heavy); background: var(--apron-deep); border: 2px solid var(--line); }
+.prep-bar > i { display: block; height: 100%; background: var(--optic); transition: width 220ms ease; }
+.prep-txt { font-size: 13px; font-weight: 650; color: var(--chalk); }
+
+.warn-note {
+  border: var(--tape) solid var(--optic);
+  color: var(--optic);
+  background: var(--ink-blue);
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  max-width: 64ch;
+}
+.warn-note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--line); }
+
+/* ── The match ────────────────────────────────────────────────────────────── */
 
 .hud { position: absolute; inset: 0; pointer-events: none; user-select: none; }
 
-.scoreboard {
-  position: absolute;
-  top: 22px; left: 50%; transform: translateX(-50%);
+/* Court-side signage: two painted plates either side of a taped post. */
+.scorebug {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
   display: flex; align-items: stretch;
-  background: var(--panel);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  min-width: 380px;
+  border: var(--tape) solid var(--line);
+  border-top: 0;
+  background: var(--ink-blue);
+  font-variant-numeric: tabular-nums;
 }
-.scoreboard .side {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 10px 18px; min-width: 140px;
+.scorebug .side {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 20px 12px;
+  min-width: clamp(180px, 17vw, 260px);
 }
-.scoreboard .side.you { background: rgba(56, 189, 248, 0.1); }
-.scoreboard .side.serving { box-shadow: inset 0 -3px 0 var(--accent); }
-.scoreboard .name {
-  font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim);
-  display: flex; align-items: center; gap: 6px;
+.scorebug .side.two { flex-direction: row-reverse; }
+.scorebug .side.you { background: var(--court); color: var(--ink); }
+.scorebug .side.serving .pts { color: var(--optic); }
+.scorebug .side.you.serving .pts { color: var(--ink-blue); }
+.scorebug .nm {
+  font-size: clamp(14px, 1.3vw, 18px); font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1; min-width: 0;
 }
-.scoreboard .name .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-.scoreboard .name .dot.off { background: var(--bad); }
-.scoreboard .pts { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
-.scoreboard .mid {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 0 14px; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
-  min-width: 86px;
+.scorebug .side.two .nm { text-align: right; }
+.scorebug .pts { font-family: var(--display); font-size: clamp(30px, 3.4vw, 50px); line-height: 0.82; }
+.scorebug .mid {
+  display: grid; place-items: center; gap: 2px;
+  padding: 0 14px;
+  border-left: var(--tape) solid var(--line);
+  border-right: var(--tape) solid var(--line);
+  min-width: 92px;
 }
-.scoreboard .mid .label { font-size: 10px; letter-spacing: 0.14em; color: var(--dim); text-transform: uppercase; }
-.scoreboard .mid .value { font-size: 15px; font-weight: 600; }
-.scoreboard .mid .value.hot { color: var(--warn); }
+.scorebug .mid .v { font-family: var(--display); font-size: clamp(15px, 1.5vw, 21px); line-height: 1; }
+.scorebug .mid .k { font-size: 10px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--chalk); }
+.scorebug .mid.hot { background: var(--optic); }
+.scorebug .mid.hot .v, .scorebug .mid.hot .k { color: var(--ink); }
+/* A dropped phone, marked on the plate rather than in a legend. */
+.scorebug .off { width: 11px; height: 11px; border-radius: 50%; background: var(--flag); flex: none; }
 
-.rally-pill {
-  position: absolute; top: 108px; left: 50%; transform: translateX(-50%);
-  font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--dim); background: var(--panel); border: 1px solid var(--line);
-  padding: 5px 12px; border-radius: 999px;
+.rally-tag {
+  position: absolute; top: calc(clamp(30px, 3.4vw, 50px) + 46px); left: 50%; transform: translateX(-50%);
+  background: var(--optic); color: var(--ink);
+  font-family: var(--display); font-size: 14px;
+  padding: 5px 14px;
+  font-variant-numeric: tabular-nums;
 }
-.rally-pill strong { color: var(--text); }
 
-.banner {
-  position: absolute; top: 36%; left: 50%; transform: translate(-50%, -50%);
-  text-align: center; pointer-events: none;
-}
+.banner { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); text-align: center; width: min(90vw, 1100px); }
 .banner .big {
-  font-size: 56px; font-weight: 800; letter-spacing: -0.02em;
-  text-shadow: 0 6px 40px rgba(0, 0, 0, 0.7);
+  font-family: var(--display);
+  font-size: clamp(40px, 8vw, 118px);
+  line-height: 0.86;
+  color: var(--line);
+  text-shadow: 0 0 calc(var(--tape) * 7) rgba(4, 20, 58, 0.7);
+  text-wrap: balance;
 }
-.banner .sub { font-size: 17px; color: var(--dim); margin-top: 6px; }
-.banner.flash .big { animation: pop 420ms cubic-bezier(0.2, 1.4, 0.4, 1); }
-@keyframes pop { from { transform: scale(0.72); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-
-.subtitle {
-  /* Boxed between the corner chips and the controller panel rather than centred
-     on the window, so a wide display never stacks them on top of each other. */
-  position: absolute; bottom: 22px; left: 116px; right: 268px;
-  margin: 0 auto; max-width: 740px; text-align: center;
-  background: rgba(4, 8, 16, 0.74); backdrop-filter: blur(8px);
-  border: 1px solid var(--line); border-radius: 12px;
-  padding: 11px 20px; font-size: 19px; line-height: 1.35;
-  box-shadow: var(--shadow);
+.banner .sub {
+  font-family: var(--display);
+  font-size: clamp(14px, 1.6vw, 23px);
+  color: var(--optic);
+  margin-top: 12px;
 }
-.subtitle .who { color: var(--accent2); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; display: block; margin-bottom: 3px; }
-
-.corner {
-  position: absolute; bottom: 16px; left: 16px;
-  display: flex; gap: 8px; align-items: center; pointer-events: auto;
-  font-size: 12px; color: var(--dim);
-}
-.corner .chip {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  padding: 5px 9px; font-variant-numeric: tabular-nums;
-}
-.corner .chip.warn { color: var(--warn); border-color: rgba(251, 191, 36, 0.4); }
-.corner .chip.bad { color: var(--bad); border-color: rgba(248, 113, 113, 0.4); }
-
-.top-right {
-  position: absolute; top: 18px; right: 18px; display: flex; gap: 8px; pointer-events: auto;
+.banner.flash .big { animation: serve-in 420ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes serve-in {
+  from { transform: translateY(-16px) scale(0.88); opacity: 0; }
+  to { transform: none; opacity: 1; }
 }
 
-/* ── Lobby ────────────────────────────────────────────────────────────────── */
-
-.lobby {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  background: radial-gradient(120% 90% at 50% 0%, #152033 0%, #070b14 62%);
-  overflow: auto;
-}
-.lobby-card {
-  width: min(960px, 94vw);
-  background: var(--panel-solid);
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  box-shadow: var(--shadow);
-  padding: 30px 34px 26px;
-}
-.lobby h1 {
-  margin: 0; font-size: 40px; letter-spacing: -0.03em; font-weight: 800;
-  display: flex; align-items: baseline; gap: 12px;
-}
-.lobby h1 span.dot { color: var(--accent); }
-.lobby .tagline { color: var(--dim); margin: 6px 0 22px; font-size: 15px; }
-
-.lobby-grid { display: grid; grid-template-columns: 1fr 260px; gap: 28px; align-items: start; }
-@media (max-width: 760px) { .lobby-grid { grid-template-columns: 1fr; } }
-
-.sport-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
-.sport-btn { text-align: left; min-width: 170px; padding: 11px 14px; }
-.sport-btn.on { border-color: var(--accent); background: rgba(74, 222, 128, 0.12); }
-.sport-btn .t { font-weight: 650; display: block; }
-.sport-btn .d { font-size: 11.5px; color: var(--dim); display: block; margin-top: 3px; line-height: 1.3; }
-/*
- * Keyed off the sport, not off `:disabled`. These buttons are also disabled on
- * the guest's screen (the host picks the sport) and while preparing, and labelling
- * a working sport "stub" in either case is a straight lie.
- */
-.sport-btn.stub .t::after { content: ' — stub'; color: var(--warn); font-weight: 400; }
-
-.seats { display: grid; gap: 10px; margin-bottom: 20px; }
-.seat {
-  display: flex; align-items: center; gap: 12px;
-  border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.03);
-}
-.seat .idx {
-  width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center;
-  background: rgba(255, 255, 255, 0.08); font-size: 12px; font-weight: 700;
-}
-.seat .who { flex: 1; }
-.seat .who .n { font-weight: 600; }
-.seat .who .s { font-size: 12px; color: var(--dim); }
-.seat .badge {
-  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 4px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.08);
-}
-.seat .badge.ready { background: rgba(74, 222, 128, 0.18); color: var(--accent); }
-.seat .badge.bot { background: rgba(56, 189, 248, 0.16); color: var(--accent2); }
-.seat .badge.you { background: rgba(255, 255, 255, 0.12); color: var(--text); }
-.seat.you { border-color: rgba(74, 222, 128, 0.38); background: rgba(74, 222, 128, 0.05); }
-
-/* ── Playing a human ──────────────────────────────────────────────────────── */
-
-.invite { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 16px; }
-.invite h3 {
-  margin: 0 0 8px; font-size: 12px; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--dim);
-}
-.invite .invite-lead { margin: 0 0 12px; font-size: 13px; color: #c3cfe4; line-height: 1.5; }
-.invite-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.invite-code {
-  display: flex; align-items: baseline; gap: 10px;
-  border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.04);
-}
-.invite-code .lab { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
-.invite-code b {
-  font-size: 22px; font-weight: 800; letter-spacing: 0.2em;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-button.copied { border-color: var(--accent); color: var(--accent); background: rgba(74, 222, 128, 0.12); }
-
-.join-row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
-.join-row label { font-size: 12.5px; color: var(--dim); }
-.join-row input {
-  width: 110px; padding: 9px 12px; font: inherit; color: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 18px; font-weight: 700; letter-spacing: 0.2em; text-align: center;
-  background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); border-radius: 10px;
-  text-transform: uppercase;
-}
-.join-row input:focus { outline: none; border-color: var(--accent2); }
-.join-row input::placeholder { color: rgba(139, 154, 181, 0.45); letter-spacing: 0.2em; }
-
-.qr-panel { text-align: center; }
-.qr-panel .qr-card + .qr-card { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
-.qr-panel .qr-title {
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--dim); margin-bottom: 9px;
-}
-.qr-panel .qr-card.second .qr-frame { max-width: 168px; }
-/*
- * A QR code is square and must stay square.
- *
- * Neither `height: auto` nor `aspect-ratio` on the canvas itself is enough: a
- * canvas is a replaced element with an intrinsic size, so a width-constrained one
- * keeps its full attribute height and comes out stretched. Put the ratio on an
- * ordinary block wrapper, which honours it everywhere, and let the canvas fill it.
- */
-.qr-panel .qr-frame {
-  width: 100%; max-width: 230px; aspect-ratio: 1 / 1;
-  margin: 0 auto 10px; padding: 10px;
-  background: #fff; border-radius: 14px;
-}
-.qr-panel .qr-frame canvas {
-  width: 100%; height: 100%; display: block;
+/* The courtside board. The commentator is the only thing on it, so it needs no
+   label saying so. */
+.callboard {
+  position: absolute; bottom: 18px; left: 130px; right: 268px;
+  margin: 0 auto; max-width: 900px;
+  background: var(--optic); color: var(--ink);
+  border: var(--tape) solid var(--line);
+  padding: 12px 22px;
+  text-align: center;
+  font-size: clamp(16px, 1.7vw, 23px);
+  font-weight: 700;
+  line-height: 1.3;
+  text-wrap: balance;
 }
 
-.qr-panel .code {
-  font-size: 30px; font-weight: 800; letter-spacing: 0.24em;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.chips { position: absolute; bottom: 18px; left: 18px; display: flex; gap: 6px; align-items: center; pointer-events: auto; }
+.chip {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--line); border: 2px solid var(--line); padding: 5px 8px;
+  font-variant-numeric: tabular-nums;
+  background: var(--ink-blue);
 }
-.qr-panel .hint { font-size: 12px; color: var(--dim); margin-top: 6px; line-height: 1.45; }
-.qr-panel .warn-note {
-  font-size: 11.5px; line-height: 1.5; color: var(--warn);
-  background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.32);
-  border-radius: 9px; padding: 8px 10px; margin-top: 10px; text-align: left;
+.chip.warn { color: var(--optic); border-color: var(--optic); }
+.chip.bad { color: var(--flag); border-color: var(--flag); }
+
+.top-right { position: absolute; top: 18px; right: 18px; display: flex; gap: 8px; pointer-events: auto; }
+
+.sound-prompt {
+  position: absolute; top: 20px; right: 20px; z-index: 6;
+  background: var(--optic); border-color: var(--optic); color: var(--ink);
+  display: flex; align-items: center; gap: 9px;
+  animation: sound-pulse 2.4s ease-in-out infinite;
 }
-.qr-panel .warn-note code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: rgba(0, 0, 0, 0.35); padding: 1px 4px; border-radius: 4px;
-}
+.sound-prompt svg { width: 19px; height: 19px; flex: none; }
+@keyframes sound-pulse { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
 
-.url {
-  font-size: 10.5px; color: var(--dim); word-break: break-all; margin-top: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; opacity: 0.7;
-}
-
-.actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.actions .spacer { flex: 1; }
-
-.prep { margin-top: 18px; }
-.prep .bar { height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 999px; overflow: hidden; }
-.prep .bar > i { display: block; height: 100%; background: linear-gradient(90deg, #38bdf8, #4ade80); transition: width 200ms ease; }
-.prep .txt { font-size: 12.5px; color: var(--dim); margin-top: 7px; }
-
-.howto { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 16px; }
-.howto h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
-.howto ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.7; color: #c3cfe4; }
-.howto kbd {
-  background: rgba(255,255,255,0.1); border: 1px solid var(--line); border-bottom-width: 2px;
-  border-radius: 5px; padding: 1px 5px; font-size: 11.5px; font-family: ui-monospace, monospace;
-}
-
-/* ── End card ─────────────────────────────────────────────────────────────── */
+/* ── End of match ─────────────────────────────────────────────────────────── */
 
 .endcard {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  background: rgba(4, 8, 16, 0.72); backdrop-filter: blur(6px); pointer-events: auto;
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  background: var(--apron);
+  pointer-events: auto;
+  padding: 24px;
+  overflow: auto;
 }
-.endcard .inner {
-  width: min(560px, 92vw); background: var(--panel-solid);
-  border: 1px solid var(--line); border-radius: 18px; padding: 28px;
-  box-shadow: var(--shadow); text-align: center;
+.endcard .sheet {
+  width: min(720px, 94vw);
+  border: var(--tape-heavy) solid var(--line);
+  background: var(--court);
+  color: var(--ink);
+  padding: clamp(22px, 3vw, 40px);
+  text-align: center;
 }
-.endcard .win { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
-.endcard .who { font-size: 40px; font-weight: 800; margin: 4px 0 2px; }
-.endcard .final { font-size: 22px; color: var(--accent); font-variant-numeric: tabular-nums; }
-.endcard ul { text-align: left; margin: 20px 0; padding-left: 18px; font-size: 13.5px; color: #c3cfe4; line-height: 1.75; }
+.endcard .sheet.lost { background: var(--apron-deep); color: var(--chalk); }
+.endcard .who {
+  font-family: var(--display);
+  font-size: clamp(34px, 6vw, 82px);
+  line-height: 0.88;
+  word-break: break-word;
+}
+.endcard .verdict { font-family: var(--display); font-size: clamp(15px, 1.6vw, 22px); margin-bottom: 6px; }
+.endcard .final {
+  font-family: var(--display);
+  font-size: clamp(38px, 5.4vw, 74px);
+  font-variant-numeric: tabular-nums;
+  margin: 16px 0 4px;
+  letter-spacing: 0.04em;
+}
+.endcard ul {
+  list-style: none; text-align: left; margin: 22px auto; padding: 0;
+  max-width: 46ch; display: grid; gap: 8px;
+}
+.endcard li { font-size: 15px; font-weight: 650; line-height: 1.45; padding-left: 22px; position: relative; }
+.endcard li::before { content: ''; position: absolute; left: 0; top: 0.52em; width: 11px; height: 11px; border-radius: 50%; background: var(--optic); }
+.endcard .sheet.lost li::before { background: var(--optic); }
+.endcard .end-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.endcard .sheet:not(.lost) button:not(.primary) { color: var(--ink); border-color: var(--ink); }
+.endcard .sheet:not(.lost) button:not(.primary):hover { background: var(--ink); color: var(--court); }
 
-/* ── Virtual controller ───────────────────────────────────────────────────── */
+/* ── The mouse controller ─────────────────────────────────────────────────── */
 
 .vc {
-  position: absolute; bottom: 16px; right: 16px; width: 218px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: 12px 14px; pointer-events: auto; font-size: 12px; color: var(--dim);
-  box-shadow: var(--shadow);
+  position: absolute; bottom: 18px; right: 18px; width: 224px;
+  background: var(--ink-blue);
+  border: var(--tape) solid var(--line);
+  padding: 12px 14px;
+  pointer-events: auto;
+  font-size: 12px; font-weight: 650;
+  color: var(--chalk);
 }
-.vc .title { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 8px; color: var(--text); }
-.vc .meter { height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 999px; overflow: hidden; margin: 8px 0; }
-.vc .meter > i { display: block; height: 100%; background: linear-gradient(90deg, #38bdf8, #fbbf24, #f87171); transition: width 60ms linear; }
-.vc .row { display: flex; justify-content: space-between; margin-top: 4px; }
-.vc .row { display: flex; justify-content: space-between; margin-top: 4px; }
+.vc .t { font-family: var(--display); font-size: 14px; color: var(--line); margin-bottom: 9px; }
+.vc .meter { height: 12px; background: var(--apron-deep); border: 2px solid var(--line); margin: 9px 0; }
+.vc .meter > i { display: block; height: 100%; background: var(--optic); transition: width 60ms linear; }
+.vc .row { display: flex; justify-content: space-between; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
-/* ── Tuning panel (dev only) ──────────────────────────────────────────────── */
+/* ── Table tennis: the timing ring ────────────────────────────────────────────
+   A ring closing on a fixed target: swing when they meet. Grown by INSET rather
+   than by transform, so the tape weight stays constant as it closes. */
+
+.timing-ring {
+  position: absolute; bottom: 104px; left: 50%;
+  width: 96px; height: 96px; margin-left: -48px;
+  border-radius: 50%;
+  pointer-events: none;
+  border: var(--tape) solid rgba(255, 255, 255, 0.34);
+}
+.timing-ring[hidden] { display: none; }
+.timing-ring i {
+  position: absolute; display: block;
+  border-radius: 50%;
+  border: var(--tape) solid var(--optic);
+  inset: calc(var(--k, 0) * -62px - var(--tape));
+}
+.timing-ring.now { border-color: var(--line); }
+.timing-ring.now i { border-color: var(--line); border-width: var(--tape-heavy); }
+
+/* ── The coach ────────────────────────────────────────────────────────────────
+   Bottom-left, clear of the scorebug, the callboard and the ring. A coach that
+   covers the ball is not a coach. */
+
+.tutorial { position: absolute; left: 18px; bottom: 18px; z-index: 12; pointer-events: none; }
+.tut-card {
+  position: relative;
+  max-width: 330px;
+  padding: 16px 18px 18px;
+  border: var(--tape) solid var(--optic);
+  background: var(--ink-blue);
+  pointer-events: auto;
+}
+.tut-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.tut-count { font-family: var(--display); font-size: 13px; color: var(--optic); font-variant-numeric: tabular-nums; }
+.tut-title { font-family: var(--display); font-size: 20px; line-height: 1.05; color: var(--line); }
+.tut-detail { margin-top: 7px; font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--chalk); }
+.tut-dots { display: flex; gap: 5px; margin-top: 14px; }
+.tut-dots i { width: 22px; height: 5px; background: rgba(232, 240, 255, 0.28); transition: background 200ms ease; }
+.tut-dots i.done { background: var(--line); }
+.tut-dots i.now { background: var(--optic); }
+.tut-skip {
+  position: absolute; top: 10px; right: 12px;
+  padding: 4px 6px; border: 0; background: none;
+  font-size: 11px; letter-spacing: 0.12em;
+  color: transparent;
+}
+/* It has to exist — a tutorial you cannot leave is a trap — but offering it
+   before the first instruction has been read invites skipping a thing unseen. */
+.tut-card:hover .tut-skip, .tut-skip:focus-visible { color: var(--chalk); }
+.tut-skip:hover { color: var(--optic); }
+
+/* ── Tuning panel (development) ───────────────────────────────────────────── */
 
 .tune {
-  position: absolute; top: 0; right: 0; bottom: 0; width: 330px;
-  background: rgba(6, 10, 18, 0.95); border-left: 1px solid var(--line);
-  padding: 14px; overflow: auto; pointer-events: auto; font-size: 12px;
+  position: absolute; top: 0; right: 0; bottom: 0; width: 338px;
+  background: var(--ink-blue);
+  border-left: var(--tape) solid var(--line);
+  padding: 16px; overflow: auto; pointer-events: auto;
+  font-size: 12px; font-weight: 600;
 }
-.tune h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
-.tune .group { margin-bottom: 14px; }
-.tune .group > b { display: block; color: var(--accent2); margin-bottom: 5px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
-.tune label { display: grid; grid-template-columns: 1fr 56px; gap: 6px; align-items: center; margin-bottom: 3px; }
-.tune label span { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tune input[type='range'] { width: 100%; }
-.tune label i { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
-
-/* A narrow or portrait display cannot fit the subtitle beside the controller
-   panel, so stack them instead of overlapping. The design target is a laptop or
-   iPad in landscape, but a squeezed window should still be readable. */
-@media (max-width: 1040px) {
-  /* Full width, and only lifted clear of the controller panel when there is one:
-     an unconditional lift parks the subtitle across the middle of the court. */
-  .subtitle { left: 16px; right: 16px; font-size: 17px; }
-  .has-vc .subtitle { bottom: 196px; }
-  .vc { width: 200px; }
+.tune h3 { font-family: var(--display); font-size: 15px; color: var(--line); margin: 0 0 12px; font-weight: 400; }
+.tune .group { margin-bottom: 16px; }
+.tune .group > b {
+  display: block; color: var(--optic); margin-bottom: 6px;
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
 }
+.tune label { display: grid; grid-template-columns: 1fr 58px; gap: 8px; align-items: center; margin-bottom: 5px; }
+.tune label span { color: var(--chalk); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tune input[type='range'] { width: 100%; accent-color: var(--optic); }
+.tune label i { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--line); }
 
 .toast {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  background: var(--panel-solid); border: 1px solid var(--bad); color: var(--text);
-  padding: 14px 20px; border-radius: 12px; box-shadow: var(--shadow); max-width: 420px;
-  text-align: center; pointer-events: auto;
+  background: var(--flag); color: var(--line);
+  border: var(--tape) solid var(--line);
+  padding: 16px 22px; max-width: 460px; text-align: center;
+  font-weight: 700; pointer-events: auto;
 }
 
-/* ── "we cannot make a sound until you touch this page" ───────────────────── */
+/* ── Narrower and portrait displays ───────────────────────────────────────────
+   The design target is a laptop or iPad in landscape, but a squeezed window has
+   to stay readable — and the callboard must never park across the court. */
 
-.sound-prompt {
-  position: absolute; top: 22px; right: 22px; z-index: 6;
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12.5px; padding: 9px 14px;
-  background: rgba(251, 191, 36, 0.14); border-color: rgba(251, 191, 36, 0.42);
-  color: var(--warn);
-  animation: sound-pulse 2.4s ease-in-out infinite;
+@media (max-width: 1100px) {
+  .callboard { left: 16px; right: 16px; }
+  .has-vc .callboard { bottom: 200px; }
+  .vc { width: 200px; }
 }
-.sound-prompt::before { content: '🔇'; font-size: 14px; }
-@keyframes sound-pulse {
-  0%, 100% { opacity: 0.78; }
-  50% { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) { .sound-prompt { animation: none; } }
 
-/* ── Table tennis: the timing ring ─────────────────────────────────────────────
-   A ring closing on a fixed target: hit when they meet. Only this sport has one
-   on screen — the others draw theirs on the court, under the contact point the
-   player is auto-positioned onto. Here you put the bat where you like, so the
-   only thing left to tell you is when. */
-.timing-ring {
-  position: absolute;
-  bottom: 104px;
-  left: 50%;
-  width: 92px;
-  height: 92px;
-  margin-left: -46px;
-  border-radius: 50%;
-  pointer-events: none;
-  border: 2px solid rgba(150, 195, 230, 0.3);
+@media (max-width: 900px) {
+  .vs { grid-template-columns: 1fr; grid-template-rows: 1fr auto 1fr; }
+  .net { width: 100%; height: 78px; grid-template-rows: none; grid-template-columns: 1fr auto 1fr; align-items: center; padding: clamp(8px, 2vw, 16px) 0; }
+  .net-cord { width: var(--tape-heavy); height: 100%; align-self: stretch; }
+  .net-mesh { height: 100%; }
+  .rack-stage { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .rack-arrows-inline { display: flex; gap: 10px; justify-content: center; }
+  .scorebug .side { min-width: 128px; padding: 8px 12px 10px; gap: 10px; }
+  .scorebug .mid { min-width: 70px; }
 }
-.timing-ring[hidden] { display: none; }
-/* Grown by INSET, not by transform. A transform scales the border with the
-   circle, so a ring that starts wide starts as a fat blurry smear and thins as
-   it closes — which reads as the ring changing rather than approaching. */
-.timing-ring i {
-  position: absolute;
-  border-radius: 50%;
-  display: block;
-  border: 3px solid var(--accent);
-  opacity: 0.85;
-  inset: calc(var(--k, 0) * -62px - 3px);
-}
-.timing-ring.now { border-color: #fff; box-shadow: 0 0 26px rgba(255, 255, 255, 0.45); }
-.timing-ring.now i { border-color: #fff; opacity: 1; }
-
-/* ── The tutorial overlay ──────────────────────────────────────────────────────
-   Bottom-left, clear of everything that matters: the scoreboard is top-centre,
-   the commentary subtitle bottom-centre, and the timing ring lives where the
-   player is already looking. A coach that covers the ball is not a coach. */
-.tutorial {
-  position: absolute;
-  left: 18px;
-  bottom: 18px;
-  z-index: 12;
-  pointer-events: none;
-}
-.tut-card {
-  position: relative;
-  max-width: 310px;
-  padding: 14px 16px 16px;
-  border-radius: 14px;
-  border: 1px solid rgba(74, 222, 128, 0.28);
-  background: rgba(10, 16, 22, 0.86);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
-  pointer-events: auto;
-}
-.tut-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.tut-label {
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.tut-count {
-  font: 600 11px/1 ui-monospace, monospace;
-  color: var(--dim);
-}
-.tut-title {
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  color: #eaf3fb;
-}
-.tut-detail {
-  margin-top: 5px;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--dim);
-}
-/* Progress as dots rather than a bar: there are six steps, and six dots say
-   "nearly there" at a glance in a way a 83%-full bar does not. */
-.tut-dots {
-  display: flex;
-  gap: 5px;
-  margin-top: 12px;
-}
-.tut-dots i {
-  width: 18px;
-  height: 3px;
-  border-radius: 2px;
-  background: #253141;
-  transition: background 0.2s;
-}
-.tut-dots i.done { background: rgba(74, 222, 128, 0.55); }
-.tut-dots i.now { background: var(--accent); }
-.tut-skip {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 11px;
-  color: transparent;
-  cursor: pointer;
-}
-/* The skip control only appears on hover. It has to exist — a tutorial you
-   cannot leave is a trap — but offering it before the player has read the first
-   instruction invites them to skip a thing they have not seen. */
-.tut-card:hover .tut-skip { color: var(--dim); }
-.tut-card:hover .tut-count { opacity: 0; }
-.tut-skip:hover { color: #eaf3fb; }
 
 @media (prefers-reduced-motion: reduce) {
-  .tut-dots i { transition: none; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

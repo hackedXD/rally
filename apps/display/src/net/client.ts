@@ -14,6 +14,8 @@ import {
   decodeAudioFrame,
   isLocalPoseish,
   isSnapshotish,
+  loadName,
+  saveName,
   s2dSchema,
   safeParse,
   type GameEvent,
@@ -69,6 +71,12 @@ export class RallyClient {
   private closedByUs = false;
   private pendingSport: SportId = 'pickleball';
   private joinCode: string | null = null;
+  /**
+   * What this screen calls its player. Remembered across sessions, and claimed
+   * on every open — a seat that is never named is "Player 1" to a commentator
+   * who says it out loud.
+   */
+  private playerName = loadName();
 
   constructor(
     private readonly url: string,
@@ -95,6 +103,9 @@ export class RallyClient {
       this.send({ t: 'HELLO', role: 'display' });
       if (this.joinCode) this.send({ t: 'ROOM_JOIN', room: this.joinCode });
       else this.send({ t: 'ROOM_CREATE', sport: this.pendingSport });
+      // After the room exists, never before: SET_NAME renames a seat, and this
+      // socket has no seat until one of the two messages above lands.
+      this.send({ t: 'SET_NAME', name: this.playerName });
 
       this.ping();
       this.pingTimer = setInterval(() => this.ping(), TUNING.net.pingIntervalMs);
@@ -250,6 +261,23 @@ export class RallyClient {
 
   addBot(skill: number): void {
     this.send({ t: 'ADD_BOT', skill });
+  }
+
+  /** The remembered name, already sanitised. */
+  get name(): string {
+    return this.playerName;
+  }
+
+  /**
+   * Rename this seat and remember it.
+   *
+   * Returns the stored form rather than what was typed, so the caller can show
+   * the player the name the commentator is going to read out.
+   */
+  setName(raw: string): string {
+    this.playerName = saveName(raw);
+    this.send({ t: 'SET_NAME', name: this.playerName });
+    return this.playerName;
   }
 
   /**

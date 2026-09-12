@@ -19,7 +19,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { ROOM_ALPHABET, lane, type SportId } from '@rally/protocol';
+import { NAME_MAX, ROOM_ALPHABET, filterName, lane, type SportId } from '@rally/protocol';
 import type { RallyClient } from '../net/client.js';
 import { useGame } from '../store/useGame.js';
 
@@ -94,6 +94,77 @@ function CopyButton({ text, label = 'Copy invite link' }: { text: string; label?
   );
 }
 
+/**
+ * Your own name, edited where it is displayed.
+ *
+ * In place rather than in a settings panel, because the thing being edited is
+ * exactly the thing beside it in the seat list — and because a name the
+ * commentator is about to say out loud should be read back in the row it will be
+ * said from.
+ *
+ * The draft is local while the field has focus and comes from the server the
+ * rest of the time. Both halves matter: without the draft, every keystroke would
+ * be overwritten by the last name the server acknowledged, and without the
+ * handover the player would never see the server's version of what they typed —
+ * which can differ, since two people arriving with one name get one of them
+ * suffixed.
+ */
+function NameField({ client, current }: { client: RallyClient; current: string }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  /**
+   * What was just committed, held until the server answers.
+   *
+   * Without it the field snaps back to the OLD name for one round trip after
+   * you press Enter — brief on a laptop beside the server, a clear "it didn't
+   * take" over the internet.
+   */
+  const [pending, setPending] = useState<string | null>(null);
+  const shown = draft ?? pending ?? current;
+
+  // Any change from the server ends the wait, whatever it says. It does not
+  // always say what was sent: two people arriving with one name get one of them
+  // suffixed, and that is exactly the case the player most needs to see.
+  const lastCurrent = useRef(current);
+  useEffect(() => {
+    if (lastCurrent.current === current) return;
+    lastCurrent.current = current;
+    setPending(null);
+  }, [current]);
+
+  const commit = () => {
+    // A field emptied and left empty is not a request to be called "": hand it
+    // back the name it had. `saveName` picks the fallback for anything else that
+    // sanitises away to nothing.
+    if (draft !== null && draft.trim()) setPending(client.setName(draft));
+    setDraft(null);
+  };
+
+  return (
+    <input
+      className="name-edit"
+      value={shown}
+      aria-label="Your name"
+      maxLength={NAME_MAX}
+      autoComplete="off"
+      spellCheck={false}
+      title="Your name, as the commentator will say it"
+      // Clean as they type rather than on commit, so the cap and the allowed
+      // characters are visible facts about the box instead of a surprise rewrite
+      // the moment they click away.
+      onChange={(e) => setDraft(filterName(e.target.value))}
+      onFocus={() => setDraft(current)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        else if (e.key === 'Escape') {
+          setDraft(null);
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 export function Lobby({ client, onStart, onPlayHere, onTutorial }: Props) {
   const room = useGame((s) => s.room);
   const sport = useGame((s) => s.sport);
@@ -154,7 +225,11 @@ export function Lobby({ client, onStart, onPlayHere, onTutorial }: Props) {
                 <div className={`seat${lane(s.seat) === mySeat ? ' you' : ''}`} key={s.seat}>
                   <div className="idx">{s.seat + 1}</div>
                   <div className="who">
-                    <div className="n">{s.name ?? (s.paired ? 'Connecting…' : 'Empty seat')}</div>
+                    {lane(s.seat) === mySeat ? (
+                      <NameField client={client} current={s.name ?? client.name} />
+                    ) : (
+                      <div className="n">{s.name ?? (s.paired ? 'Connecting…' : 'Empty seat')}</div>
+                    )}
                     <div className="s">
                       {seatStatus(s, lane(s.seat) === mySeat, Boolean(room?.otherPairUrl))}
                     </div>

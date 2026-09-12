@@ -71,7 +71,7 @@ export type C2S =
    * forehand and a backhand. The pose keeps updating either way, so the shot is
    * unaffected.
    */
-  | { t: 'POSE'; seq: number; ct: number; q: QuantQuat; z?: number; hold?: boolean }
+  | { t: 'POSE'; seq: number; ct: number; q: QuantQuat; z?: number; dx?: number; hold?: boolean }
   | {
       t: 'SWING';
       seq: number;
@@ -97,6 +97,14 @@ export type D2S =
   | { t: 'ROOM_JOIN'; room: string }
   | { t: 'SPORT_SELECT'; sport: SportId }
   | { t: 'ADD_BOT'; skill: number }
+  /**
+   * Rename this screen's own seat.
+   *
+   * Separate from the controller's READY, which also carries a name, because
+   * a rename is not a readiness change: the name can be edited in the lobby
+   * before a phone has ever paired, and editing it must not start anything.
+   */
+  | { t: 'SET_NAME'; name: string }
   | { t: 'READY' }
   | { t: 'START' }
   | { t: 'REMATCH' }

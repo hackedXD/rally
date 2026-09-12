@@ -81,7 +81,16 @@ html, body {
 /* ── Play ─────────────────────────────────────────────────────────────────── */
 
 .bar { display: flex; align-items: center; gap: 10px; }
-.bar .name { font-size: 17px; font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .name {
+  font-size: 17px; font-weight: 700; flex: 1; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+  /* A button that looks like the label it replaced, with one dotted hint that
+     it can be tapped. Left-aligned and full-height so the tap target is the
+     whole name rather than the glyphs. */
+  background: none; border: 0; color: inherit; font-family: inherit;
+  text-align: left; padding: 2px 0; min-height: 30px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.22);
+}
 .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--accent); flex: none; }
 .dot.warn { background: var(--warn); }
 .dot.bad { background: var(--bad); }
@@ -147,3 +156,17 @@ html, body {
   padding: 18px 30px; border-radius: 14px; border: none;
   background: var(--accent); color: #04130d; font-size: 19px; font-weight: 700;
 }
+.overlay input {
+  display: block; width: 100%; max-width: 320px; margin: 0 auto 18px;
+  padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06); color: var(--text);
+  /* 16px is the floor below which iOS Safari zooms the page on focus, which on
+     a landscape-locked controller throws the layout away mid-tap. */
+  font-size: 19px; font-weight: 700; text-align: center; font-family: inherit;
+}
+.overlay input:focus { outline: none; border-color: var(--accent); }
+/* Solid, where the pause sheet is 94%. That one covers the play screen, which
+   is mostly empty space; this one can be opened over a full scoreboard, and six
+   per cent of a score bleeding through the box you are typing a name into is
+   enough to make both unreadable. */
+#name-overlay { background: var(--bg); }

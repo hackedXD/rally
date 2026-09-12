@@ -15,3 +15,4 @@ export * from './messages.js';
 export * from './schemas.js';
 export * from './clock.js';
 export * from './ids.js';
+export * from './name.js';

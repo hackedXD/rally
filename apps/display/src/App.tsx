@@ -276,13 +276,13 @@ export function App() {
       room.code,
       room.seat,
       room.pairToken,
-      localPlayerName(),
+      client.name,
     );
     vc.onChange = setVirtualState;
     vc.connect();
     virtual.current = vc;
     useGame.getState().toggleVirtual();
-  }, [unlockAudio]);
+  }, [client, unlockAudio]);
 
   // ── Input ───────────────────────────────────────────────────────────────────
 
@@ -466,21 +466,6 @@ function rememberRoom(code: string): void {
   if (url.searchParams.get('room') === code) return;
   url.searchParams.set('room', code);
   history.replaceState(null, '', url);
-}
-
-/**
- * A stable, speakable name for whoever is playing from this machine. Remembered,
- * so a rematch does not rename them mid-session.
- */
-function localPlayerName(): string {
-  const stored = localStorage.getItem('rally.name');
-  if (stored) return stored;
-  const adjectives = ['Swift', 'Lucky', 'Bold', 'Calm', 'Sly', 'Keen', 'Wild'];
-  const nouns = ['Otter', 'Falcon', 'Comet', 'Pike', 'Ember', 'Moth', 'Fox'];
-  const pick = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)];
-  const name = `${pick(adjectives)} ${pick(nouns)}`;
-  localStorage.setItem('rally.name', name);
-  return name;
 }
 
 /** Where a hit happened, for the impact ring and the shake. */

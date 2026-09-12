@@ -298,12 +298,38 @@ export class Room {
   // ── Controller input ────────────────────────────────────────────────────────
 
   setReady(seat: Seat, name: string): void {
-    const slot = this.slots[lane(seat)];
-    slot.name = this.uniqueName(name, seat);
-    slot.ready = true;
-    this.match.setNames(this.names());
+    this.setName(seat, name);
+    this.slots[lane(seat)].ready = true;
     this.touch();
   }
+
+  /**
+   * Rename a seat, without touching whether it is ready.
+   *
+   * Separate from READY because the screen may own the name before any phone
+   * exists — somebody types it in the lobby and then scans the code — and
+   * because marking a seat ready is what starts matches.
+   *
+   * The opponent's phone is told directly. It learned the name it is showing
+   * from its PAIRED, which is sent once; without this it goes on displaying
+   * whoever the other player used to be until the first point is scored.
+   */
+  setName(seat: Seat, name: string): void {
+    const slot = this.slots[lane(seat)];
+    const next = this.uniqueName(name, seat);
+    if (next === slot.name) return;
+    slot.name = next;
+    this.match.setNames(this.names());
+    this.slots[lane(otherSeat(seat))].controller?.send({
+      t: 'PAIRED',
+      seat: otherSeat(seat),
+      room: this.code,
+      sport: this.sport.id,
+      opponent: next,
+    });
+    this.touch();
+  }
+
 
   /**
    * Keep the two players distinguishable.

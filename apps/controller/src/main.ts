@@ -14,7 +14,15 @@
  */
 
 import { Calibrator } from '@rally/motion';
-import { TUNING, sanitizeName, type CueKind, type Seat } from '@rally/protocol';
+import {
+  NAME_MAX,
+  TUNING,
+  filterName,
+  loadName,
+  saveName,
+  type CueKind,
+  type Seat,
+} from '@rally/protocol';
 import { haptics } from './haptics.js';
 import { ControllerNet, type LiteState } from './net.js';
 import { readPairing, wsUrl } from './url.js';
@@ -316,7 +324,9 @@ function draw(): void {
   app.innerHTML = `
     <div class="bar">
       <span class="dot ${connState === 'open' ? '' : connState === 'connecting' ? 'warn' : 'bad'}"></span>
-      <span class="name">${escapeHtml(playerName)}</span>
+      <button class="name" id="rename" aria-label="Change your name">
+        ${escapeHtml(playerName)}
+      </button>
       <button class="icon-btn ${muted ? 'on' : ''}" id="mute" aria-label="Mute commentary">
         ${muted ? '🔇' : '🔊'}
       </button>
@@ -353,6 +363,7 @@ function draw(): void {
     </div>
   `;
 
+  app.querySelector('#rename')?.addEventListener('click', () => renderNameEditor());
   app.querySelector('#serve')?.addEventListener('click', () => {
     net?.serve();
     haptics.play('serve');
@@ -416,6 +427,65 @@ function renderPausedOverlay(): void {
     renderPlay();
   });
   app.append(overlay);
+}
+
+/**
+ * Change your name, on the phone.
+ *
+ * Appended to the BODY rather than to `app`, and that is the whole reason this
+ * is an overlay instead of an input in the header. The play screen re-renders by
+ * replacing `app.innerHTML` wholesale on every cue, score and snapshot — a text
+ * field living inside it would be destroyed and rebuilt under the player's
+ * thumb, losing focus and caret mid-word, several times a second.
+ *
+ * Renaming re-sends READY, which is the message that already carries a name.
+ * The seat is ready by the time this button is reachable, so saying so again
+ * changes nothing else.
+ */
+function renderNameEditor(): void {
+  if (document.getElementById('name-overlay')) return;
+  const overlay = el('div', 'overlay');
+  overlay.id = 'name-overlay';
+  overlay.innerHTML = `
+    <div>
+      <h2>Your name</h2>
+      <p>The commentator says this out loud.</p>
+      <input id="name-input" maxlength="${NAME_MAX}" autocomplete="off"
+             spellcheck="false" enterkeyhint="done" aria-label="Your name" />
+      <button id="name-save">Save</button>
+    </div>`;
+  document.body.append(overlay);
+
+  const input = overlay.querySelector('#name-input') as HTMLInputElement;
+  input.value = playerName;
+  // Clean as they type, so the cap and the allowed characters are visible facts
+  // about the box rather than a rewrite that happens after Save. Written back
+  // only when it actually changed: assigning `value` puts the caret at the end,
+  // and a typist who never types anything odd should never feel that.
+  input.addEventListener('input', () => {
+    const clean = filterName(input.value);
+    if (clean !== input.value) input.value = clean;
+  });
+  input.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') commit();
+  });
+  overlay.querySelector('#name-save')?.addEventListener('click', () => commit());
+  // Tapping the backdrop is how every other sheet on a phone is dismissed.
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  input.focus();
+  input.select();
+
+  function commit(): void {
+    // A field emptied and left empty is not a request to be called "".
+    if (input.value.trim()) {
+      playerName = saveName(input.value);
+      net?.ready(playerName);
+    }
+    overlay.remove();
+    renderPlay();
+  }
 }
 
 function renderFatal(title: string, message: string): void {
@@ -485,32 +555,6 @@ function cueToClick(kind: CueKind): Parameters<typeof haptics.play>[0] {
     default:
       return 'serve';
   }
-}
-
-/**
- * A remembered, speakable name for this player.
- *
- * The word lists live INSIDE the function on purpose. This is called while the
- * module is still evaluating, and module-level `const`s declared further down the
- * file are in the temporal dead zone at that point — reaching one throws, the
- * script dies, and the page renders as a blank screen. It only bites when storage
- * is empty, which is never true in local testing and always true on a phone
- * opening the page for the first time.
- */
-function loadName(): string {
-  const stored = localStorage.getItem('rally.name');
-  if (stored) return sanitizeName(stored);
-  const adjectives = ['Swift', 'Lucky', 'Bold', 'Calm', 'Sly', 'Keen', 'Wild'];
-  const nouns = ['Otter', 'Falcon', 'Comet', 'Pike', 'Ember', 'Moth', 'Fox'];
-  const pick = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
-  const name = sanitizeName(`${pick(adjectives)} ${pick(nouns)}`);
-  try {
-    localStorage.setItem('rally.name', name);
-  } catch {
-    // Private browsing can refuse to store. A name that is not remembered is
-    // still a name; it must not take the page down with it.
-  }
-  return name;
 }
 
 function noop(): void {

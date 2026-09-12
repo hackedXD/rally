@@ -28,6 +28,7 @@ That plays the whole game with a mouse — no phone required. For the real thing
 | **Sports** | Pickleball and badminton share one code path — two different courts, two different swings. Table tennis has its own engine: a regulation table, a ball that carries spin, and a bat with a position you have to put on the ball. Bowling ships as a compiling interface stub — see [Adding a sport](#adding-a-sport). |
 | **Controllers** | An iPhone held like a paddle, or a mouse. Both speak the identical protocol; the server cannot tell them apart. |
 | **Tutorial** | A coached first match against a weak bot. It reads the live game rather than scripting one, so what it teaches is the game you then play. |
+| **Names** | Set your own, on the screen or the phone. Remembered between sessions, sanitised before anything says it aloud. |
 | **Opponent** | Another human across the internet, or a built-in bot with a difficulty dial. |
 | **Commentary** | Works with no API keys at all. Add a Gemini key and an ElevenLabs key and the same pipeline upgrades in place. |
 | **Tests** | 140 covering both physics engines, the shot solver, the spin model, sensor fusion, the protocol, the commentary, and full matches over real WebSockets. |
@@ -189,6 +190,31 @@ mid-match degrades the commentary and never the match.
 so they are sanitised to `[A-Za-z0-9 '-]` and capped at 16 characters. Generated
 lines pass an output filter as well as a prompt ceiling, and <kbd>M</kbd> mutes the
 commentator instantly.
+
+---
+
+## Your name
+
+Click it in the lobby, on your own seat, where it is displayed — the thing being
+edited is the thing beside it in the seat list, and a name the commentator is
+about to say out loud should be read back in the row it will be said from. On
+the phone, tap it in the header. Either way it is remembered in `localStorage`
+under `rally.name`, which both surfaces share; leave it alone and you get a
+generated one that is kept, so a rematch does not rename you mid-session.
+
+Both boxes clean as you type rather than rewriting what you typed when you
+click away, so the cap and the allowed characters are visible facts about the
+field. They *filter* rather than reject: one stray character in a pasted name
+costs that character, not the whole paste.
+
+The field then shows what the server stored, which is not always what was sent —
+two people arriving with the same remembered name (two browser windows on one
+machine, which is easy to do by accident) get one of them suffixed, because the
+commentator builds every line from `{player}` and `{opponent}` and "Ada takes it
+from Ada" is not a sentence. The screen renames its seat with `SET_NAME`, kept
+separate from the phone's `READY` for the plain reason that a rename is not a
+readiness change: you can name yourself before any phone has paired, and doing
+so must not start a match.
 
 ---
 

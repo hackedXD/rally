@@ -177,6 +177,14 @@ export class SessionManager {
         return;
       }
 
+      case 'SET_NAME': {
+        const room = this.roomOf(conn);
+        if (!room || conn.seat === null) return;
+        room.setName(conn.seat, msg.name);
+        this.refresh(room);
+        return;
+      }
+
       case 'READY':
       case 'START': {
         const room = this.roomOf(conn);
@@ -230,7 +238,7 @@ export class SessionManager {
 
     switch (msg.t) {
       case 'POSE':
-        room.onPose(seat, msg.q, msg.ct, msg.z, msg.hold);
+        room.onPose(seat, msg.q, msg.ct, msg.z, msg.dx, msg.hold);
         return;
       case 'SWING':
         room.onSwing(seat, msg, conn);
