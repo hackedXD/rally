@@ -43,6 +43,11 @@ export interface RenderState {
   strike: StrikeTelegraph | null;
   rally: number;
   tick: number;
+  /**
+   * Who has picked their bat up, by lane. Absent in a replay recorded before the
+   * ready-up existed, where every bat was always in a hand.
+   */
+  ready: [boolean, boolean];
 }
 
 const GRAVITY = 9.81;
@@ -225,6 +230,7 @@ export class SnapshotBuffer {
       strike: base.strike ?? null,
       rally: base.rally,
       tick: base.tick,
+      ready: base.ready ?? [true, true],
     };
   }
 }

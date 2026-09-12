@@ -45,6 +45,14 @@ interface Props {
 const tmpV = new THREE.Vector3();
 const tmpQ = new THREE.Quaternion();
 
+/**
+ * How fast a racket rises into the hand when its player readies up, per frame.
+ * The same lerp table tennis uses, so both sports pick up at one speed.
+ */
+const REST_EASE = 0.1;
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
+const restQ = new THREE.Quaternion();
+
 export function Scene({ client, court, sport, ownSeat, framing }: Props) {
   const look = LOOKS[sport];
   const ballRadius = BALL_RADIUS[sport];
@@ -292,12 +300,34 @@ export function Scene({ client, court, sport, ownSeat, framing }: Props) {
             feel.reconcile = null;
           }
         }
-        paddle.position.copy(target);
-        paddle.quaternion.copy(tmpQ);
-        // After the quaternion, not before: setting `rotation` first and then
-        // copying a quaternion silently discards it, since they are two views of
-        // the same underlying value.
-        if (roll !== 0) paddle.rotateZ(roll);
+        /*
+         * Not picked up: the racket hangs at the player's side.
+         *
+         * The same beat table tennis draws by laying the bat on the table — a
+         * court sport has no table to lay it on, so rest is the arm down rather
+         * than the blade flat. Per seat and every rally: readiness clears the
+         * moment a rally ends, so both rackets drop and come back up one tap at
+         * a time, and the tap on the phone visibly does something at the end of
+         * the room the player is looking at.
+         *
+         * Eased, never snapped. The lift IS the pick-up, and a racket that
+         * teleported into position would say nothing about who just readied.
+         */
+        if (!render.ready[i]) {
+          const rest = shoulder
+            .clone()
+            .add(new THREE.Vector3(racket.holdSide * -seatSign(p.seat) * 0.22, -armLen, 0));
+          restQ.setFromAxisAngle(AXIS_Z, seatSign(p.seat) * 0.42);
+          paddle.position.lerp(rest, REST_EASE);
+          paddle.quaternion.slerp(restQ, REST_EASE);
+        } else {
+          paddle.position.copy(target);
+          paddle.quaternion.copy(tmpQ);
+          // After the quaternion, not before: setting `rotation` first and then
+          // copying a quaternion silently discards it, since they are two views
+          // of the same underlying value.
+          if (roll !== 0) paddle.rotateZ(roll);
+        }
       }
     }
 

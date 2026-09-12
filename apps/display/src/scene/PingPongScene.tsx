@@ -248,11 +248,18 @@ export function PingPongScene({ client, ownSeat, view }: Props) {
       }
       wasSwinging.current[i] = swinging;
 
-      // Not in play: the bat lies on the table, because that is where a bat is
+      // Not picked up: the bat lies on the table, because that is where a bat is
       // when nobody has picked it up. Before this it hovered in mid-air chasing
       // the ball around, which reads as the bat bouncing along WITH the ball
       // rather than being swung at it.
-      if (render.phase === 'lobby' || render.phase === 'gameover') {
+      //
+      // Per SEAT and every rally, not just between matches. Readiness clears the
+      // moment a rally ends, so both bats go down on the table and come back up
+      // one tap at a time — which is what makes the ready-up visible from across
+      // the room, and makes the tap on the phone visibly do something at the end
+      // of the room the player is looking at. The lift is the pick-up: REST_EASE
+      // is a lerp, so the bat rises into the hand rather than snapping there.
+      if (!render.ready[i] || render.phase === 'lobby' || render.phase === 'gameover') {
         const rest = restPos(i);
         g.position.x += (rest[0] - g.position.x) * REST_EASE;
         g.position.y += (rest[1] - g.position.y) * REST_EASE;
