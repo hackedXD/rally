@@ -414,7 +414,10 @@ the rally length suggests.
 | | |
 |---|---|
 | `npm run dev` | Server, display and phone together |
+| `npm run test:fast` | Every test except the end-to-end file. ~3 seconds |
+| `npm run test:e2e` | The end-to-end file alone: real matches over real sockets |
 | `npm run check` | Typecheck everything, then run every test |
+| `npm run check:fast` | …the same, without the end-to-end file |
 | `npm run headless -- --seed 5` | Watch a match as console output |
 | `npm run headless -- --sport badminton --skill 0.8` | …with a different sport and bot skill |
 | `npm run mock:snapshots` | Serve a looping match with jitter and packet loss |
