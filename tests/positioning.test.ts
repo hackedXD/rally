@@ -168,6 +168,34 @@ describe('reach', () => {
   });
 });
 
+describe('the bat as it is drawn', () => {
+  /**
+   * The display draws a bat straight from `paddleFrame(...).worldQ`, for both
+   * seats, from the same snapshot. So the seat mapping has to be symmetric: the
+   * opponent's bat is the one nobody can sanity-check by waving their own phone,
+   * and a mirror there is invisible until somebody plays a real match.
+   */
+  it('points both seats\' bats across the net, not along it', () => {
+    for (const p of SEATS) {
+      const { normal } = pingpong.paddleFrame(p, [0, 0, 0, 1]);
+      // dirOf is the way this seat plays. The face has to be looking that way.
+      expect(Math.sign(normal[2]), `seat ${p} faces its own end`).toBe(Math.sign(dirOf(p)));
+    }
+  });
+
+  it('mirrors the two seats and nothing else', () => {
+    // A pose aimed to the player's own right, for each seat. The drawn bat must
+    // end up on that seat's own right in WORLD terms — which is rightOf, and is
+    // opposite for the two seats. Equal magnitudes, opposite signs: a mirror of
+    // each other and nothing more.
+    const aimRight = yawBy(-0.3);
+    const x = SEATS.map((p) => pingpong.paddleFrame(p, aimRight).normal[0]);
+    expect(Math.sign(x[0]), 'seat 0 right is world -x').toBe(rightOf(0));
+    expect(Math.sign(x[1]), 'seat 1 right is world +x').toBe(rightOf(1));
+    expect(Math.abs(x[0])).toBeCloseTo(Math.abs(x[1]), 9);
+  });
+});
+
 describe('AIM spans', () => {
   it('keeps the pickle spans, which is what makes the reach feel the same', () => {
     expect(AIM.SPAN_X).toBe(1.35);

@@ -114,6 +114,14 @@ export function releaseWakeLock(): void {
 export interface SensorStream {
   fusion: Fusion;
   swings: SwingDetector;
+  /**
+   * Tell it where the court is, and drop everything that was guessing.
+   *
+   * What the READY tap calls. Re-zeroing yaw on its own is not enough: the drift
+   * corrections keep their old baseline and pull the bat straight back off the
+   * centre the player just set.
+   */
+  recentre(): void;
   stop(): void;
   /** Samples seen so far — used to detect a stalled sensor. */
   sampleCount(): number;
@@ -292,12 +300,36 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
     yawState = next;
   };
 
+  /**
+   * Re-centre on the court: the READY tap, and the whole of it.
+   *
+   * Being told where the court is beats every way of guessing, so a tap has to
+   * win outright — which means resetting the three things that would otherwise
+   * go on arguing for the old heading. Re-zeroing the fusion alone leaves
+   * `yawState` confirmed at the previous heading and the drift baseline measured
+   * against it, so `anchorYaw` and `trackDrift` immediately start pulling back
+   * toward exactly the reading the player just corrected. The bat drifts off the
+   * new centre over the next second or so, which reads as a paddle that wanders
+   * on its own rather than as a reset that did not take.
+   */
+  const recentre = (): void => {
+    fusion.rezeroYaw();
+    // Confirmed at the new datum, so the still-bat anchor holds THIS heading.
+    yawState = { yaw: fusion.heading, confirmed: true, rejects: 0 };
+    // The compass has not moved; what changed is what we are measuring it
+    // against. Re-baseline rather than discard, so a working compass keeps its
+    // long-term truth across the tap instead of spending a second re-acquiring.
+    drift = drift.have ? { d: angleDelta(fusion.rawHeading, 0), have: true } : newDrift();
+    steadySince = 0;
+  };
+
   window.addEventListener('deviceorientation', onOrientation);
   window.addEventListener('devicemotion', onMotion);
 
   return {
     fusion,
     swings,
+    recentre,
     sampleCount: () => samples,
     sampleHz: () => hz,
     setSport(id: string) {

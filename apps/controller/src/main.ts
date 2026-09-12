@@ -453,7 +453,8 @@ function draw(): void {
 function readyUp(): void {
   if (localReady) return;
   if (sensors) {
-    calibration = sensors.fusion.rezeroYaw();
+    sensors.recentre();
+    calibration = sensors.fusion.calibration;
     net?.calibrated(sensors.fusion.yawOffset);
   }
   localReady = true;
