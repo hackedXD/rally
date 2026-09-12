@@ -613,23 +613,34 @@ scan a code.
 This is also why the cheapest free tiers are a poor fit: most of them idle down,
 and for an app that keeps its state in memory that is not a slow first request,
 it is a deleted match. The Compose setup below restarts on boot and never
-suspends; `fly.toml` sets `auto_stop_machines = false` for the same reason.
+suspends, which is the whole reason it is a box and not a serverless platform.
 
 Scaling past one box means moving rooms out of process memory. That is a real
 piece of work, not a config change.
 
-### Vultr (or any box you own)
+### DigitalOcean (or any box you own)
 
-The best fit for this, because the one thing Rally needs from a host is to *stay
-running*: no sleeping on idle, no suspending between matches, and a CPU that is
-actually yours for a 60 Hz tick. A **$6/mo High Frequency instance, 1 GB, in New
-Jersey** covers US East comfortably.
+A box is the best fit for this, because the one thing Rally needs from a host is
+to *stay running*: no sleeping on idle, no suspending between matches, and a CPU
+that is actually yours for a 60 Hz tick. A **$6/mo Basic droplet, 1 GB / 1 vCPU,
+in NYC** covers US East comfortably, and is billed flat — never more than $6 in a
+month however hard it is played.
 
-[`deploy/`](deploy/vultr) has the whole thing: the app and Caddy in one
-Compose file, TLS issued and renewed automatically.
+Create it with Ubuntu 24.04 and your SSH key attached:
 
 ```bash
-# once, on a fresh Ubuntu 22.04+ instance
+doctl compute droplet create rally \
+  --image ubuntu-24-04-x64 --size s-1vcpu-1gb --region nyc1 \
+  --ssh-keys "$(doctl compute ssh-key list --no-header --format ID | head -1)" \
+  --wait --format PublicIPv4
+```
+
+The control panel does the same thing; all the scripts want is the IP and root
+SSH. [`deploy/`](deploy/) has the rest: the app and Caddy in one Compose file,
+TLS issued and renewed automatically.
+
+```bash
+# once, on the fresh droplet
 ssh root@<ip> 'bash -s' < deploy/provision.sh
 
 # then, from here, as often as you like
@@ -664,20 +675,6 @@ so a laptop can never overwrite production secrets or drag them back.
 ssh root@<ip> 'cd /opt/rally/deploy && docker compose logs -f rally'
 curl https://<your-domain>/healthz
 ```
-
-### Fly.io
-
-[`fly.toml`](fly.toml) is here too, if you would rather not run a box.
-
-```bash
-fly launch --no-deploy --name rally-<something-unique> --region iad
-fly secrets set GEMINI_API_KEY=... ELEVENLABS_API_KEY=...
-fly deploy && fly scale count 1
-```
-
-Pick a name nobody has taken — the one in `fly.toml` almost certainly is, and
-`fly launch` fails obscurely on that. Keep `auto_stop_machines = false` if
-`fly launch` rewrites the file.
 
 ### Anywhere else
 
