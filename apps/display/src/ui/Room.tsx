@@ -189,8 +189,8 @@ export function Room({ client, onStart, onPlayHere, onTutorial, onBackToRack }: 
   const mySeat = lane(room?.seat ?? 0);
   const mine = seats[mySeat] ?? null;
   const theirs = seats[1 - mySeat] ?? null;
-  /** Their display is here (so no QR for us to show) but no phone on it yet. */
-  const waitingOnThem = Boolean(room && !room.otherPairUrl && theirs && !theirs.paired);
+  /** Their screen is here but no phone on it yet — a person mid-connect. */
+  const waitingOnThem = Boolean(room?.theirDisplay && theirs && !theirs.paired);
   const startLabel = startLabelFor(
     preparing,
     waitingOnThem,
@@ -204,9 +204,9 @@ export function Room({ client, onStart, onPlayHere, onTutorial, onBackToRack }: 
     const s = side === 'mine' ? mine : theirs;
     if (!s) return null;
     const isYou = side === 'mine';
-    const url = isYou ? room?.pairUrl : room?.otherPairUrl;
-    // An open seat we can hand a code to. A seat somebody else's display has
-    // claimed shows no code, because that display is already showing one.
+    // One QR per screen: this screen's own seat. The other player opens the
+    // invite link on their own machine and scans the code it shows them.
+    const url = isYou ? room?.pairUrl : null;
     const showPair = Boolean(url) && !s.paired && !s.bot;
     // Designed absence: an unclaimed seat is this half of the court painted
     // unlit, showing exactly what will fill it.
@@ -248,7 +248,7 @@ export function Room({ client, onStart, onPlayHere, onTutorial, onBackToRack }: 
           )}
         </div>
 
-        <p className="half-status">{seatStatus(s, isYou, Boolean(room?.otherPairUrl))}</p>
+        <p className="half-status">{seatStatus(s, isYou, Boolean(room?.theirDisplay))}</p>
       </div>
     );
   };
@@ -391,16 +391,16 @@ function startLabelFor(
 function seatStatus(
   s: { seat: number; paired: boolean; bot: boolean; connected: boolean },
   isYou: boolean,
-  weShowItsCode: boolean,
+  theirDisplay: boolean,
 ): string {
   if (s.bot) return 'Built-in opponent';
   if (s.paired) return s.connected ? 'Phone connected' : 'Phone dropped — waiting';
   if (isYou) return 'Scan with your phone, or play from this machine';
-  // Their seat. If we are not the screen showing its code, somebody else's is —
-  // which is exactly what has happened once a friend opens the invite link.
-  return weShowItsCode
-    ? 'Open — scan it, or send the invite link to a friend'
-    : 'Someone is here, connecting a phone…';
+  // Their seat. Once a friend opens the invite link their own screen is here and
+  // is showing them their own code; until then the seat is simply empty.
+  return theirDisplay
+    ? 'Someone is here, connecting a phone…'
+    : 'Open — send the invite link, or add a bot';
 }
 
 /**

@@ -327,7 +327,7 @@ export class SessionManager {
         joinUrl: `${origin}/?room=${room.code}`,
         // Only one screen may advertise a seat's code at a time; a single-use
         // token shown in two places fails on the second scan.
-        otherPairUrl: room.hasDisplay(other) ? null : pairUrl(origin, room, other),
+        theirDisplay: room.hasDisplay(other),
         sport: room.sport.id,
         seats: room.seatInfo(),
         sports: room.sportsMeta(),

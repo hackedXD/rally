@@ -53,6 +53,7 @@ app.get('/api/sports', async () => ({
       name: s.displayName,
       tagline: s.tagline,
       playable: s.playable,
+      beta: s.beta ?? false,
       rallyBased: s.rallyBased,
       court: s.court,
     };

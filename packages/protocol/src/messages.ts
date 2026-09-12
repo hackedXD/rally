@@ -233,15 +233,19 @@ export type S2D =
        */
       joinUrl: string;
       /**
-       * The OTHER seat's phone link, offered to this display only while no second
-       * display has claimed that seat — which is what lets one screen host two
-       * phones sitting next to each other.
+       * Has somebody else's screen claimed the other seat?
        *
-       * Null the moment a friend's display joins. A pair token is single-use, so
-       * a code shown in two places at once fails on whichever scan arrives
-       * second, and that failure looks exactly like a broken QR.
+       * This screen shows one QR — its own. There is no split screen and no
+       * second camera, so two phones on one display were two people swinging at
+       * one person's view of the court; the second code offered a mode that did
+       * not really exist. The other player opens the invite link on their own
+       * machine and scans there.
+       *
+       * The flag stays because the lobby still has to tell "nobody is here" from
+       * "somebody is here, connecting" — one waits for a friend, the other is
+       * about to start without them.
        */
-      otherPairUrl: string | null;
+      theirDisplay: boolean;
       sport: SportId;
       seats: SeatInfo[];
       sports: SportMeta[];

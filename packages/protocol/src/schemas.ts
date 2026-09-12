@@ -211,7 +211,7 @@ export const s2dSchema = z.discriminatedUnion('t', [
     pairToken: z.string(),
     pairUrl: z.string(),
     joinUrl: z.string(),
-    otherPairUrl: z.string().nullable(),
+    theirDisplay: z.boolean(),
     sport: sportId,
     seats: z.array(seatInfo),
     sports: z.array(sportMeta),

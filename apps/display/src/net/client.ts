@@ -40,7 +40,7 @@ export interface RoomView {
   /** Opens this room on a friend's machine; they take the other seat. */
   joinUrl: string;
   /** The other seat's phone link while no second display has claimed it. */
-  otherPairUrl: string | null;
+  theirDisplay: boolean;
   sport: SportId;
   seats: SeatInfo[];
   sports: SportMeta[];
@@ -172,7 +172,7 @@ export class RallyClient {
           pairToken: msg.pairToken,
           pairUrl: msg.pairUrl,
           joinUrl: msg.joinUrl,
-          otherPairUrl: msg.otherPairUrl,
+          theirDisplay: msg.theirDisplay,
           sport: msg.sport,
           seats: msg.seats,
           sports: msg.sports,

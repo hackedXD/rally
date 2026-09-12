@@ -228,19 +228,25 @@ describe('server endpoints', () => {
     const json = (await fetch(`${BASE}/api/sports`).then((r) => r.json())) as {
       sports: { id: string; playable: boolean }[];
     };
-    // Order matters: it is the order the lobby lists them in, stub last.
+    // Order matters: it is the order the lobby lists them in. Table tennis first
+    // because it is the product — its own engine, its own physics — and the stub
+    // last.
     expect(json.sports.map((s) => s.id)).toEqual([
-      'pickleball',
       'tabletennis',
+      'pickleball',
       'badminton',
       'bowling',
     ]);
     expect(json.sports.filter((s) => s.playable).map((s) => s.id)).toEqual([
-      'pickleball',
       'tabletennis',
+      'pickleball',
       'badminton',
     ]);
     expect(json.sports.find((s) => s.id === 'bowling')!.playable).toBe(false);
+    // Playable on the shared engine, and labelled as such rather than letting
+    // somebody find out by playing one.
+    const beta = json.sports as { id: string; beta?: boolean }[];
+    expect(beta.filter((s) => s.beta).map((s) => s.id)).toEqual(['pickleball', 'badminton']);
   });
 });
 
@@ -645,12 +651,12 @@ describe('protocol hardening', () => {
     expect(bState.pairUrl).toContain('s=1');
     expect(bState.pairToken).not.toBe(state.pairToken);
 
-    // Neither screen advertises the other's seat any more. A pair token is
-    // single-use, so a code on two screens at once fails whichever scan is
-    // second — and that reads as a broken QR, not as a taken seat.
-    expect(bState.otherPairUrl).toBeNull();
+    // Each screen shows one code: its own seat's. The other screen's arrival is
+    // what the first one is told about, so the lobby can tell "nobody is here"
+    // from "somebody is here, connecting".
+    expect(bState.theirDisplay).toBe(true);
     await a.waitUntil(
-      () => a.latest('ROOM_STATE')?.otherPairUrl === null,
+      () => a.latest('ROOM_STATE')?.theirDisplay === true,
       4000,
       'seat 1 claimed by its own display',
     );
@@ -797,13 +803,14 @@ describe('playing another human', () => {
     // The invite opens a second display on the same origin that served this one.
     expect(new URL(state.joinUrl).searchParams.get('room')).toBe(state.room);
 
-    // Nobody else is on seat 1, so this screen may show its code too: two phones,
-    // one court.
-    expect(state.otherPairUrl).not.toBeNull();
-    const frag = new URLSearchParams(state.otherPairUrl!.split('#')[1]);
-    expect(frag.get('s')).toBe('1');
+    // Nobody else is here yet, and this screen still advertises only its own
+    // seat: there is one camera and one court view, so a second phone on this
+    // screen was never a second player, only a second person swinging at
+    // somebody else's view.
+    expect(state.theirDisplay).toBe(false);
+    const frag = new URLSearchParams(state.pairUrl.split('#')[1]);
+    expect(frag.get('s')).toBe(String(state.seat));
     expect(frag.get('r')).toBe(state.room);
-    expect(frag.get('t')).not.toBe(state.pairToken);
 
     a.close();
   }, 20_000);
@@ -816,16 +823,28 @@ describe('playing another human', () => {
     display.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
     const state = await display.waitFor('ROOM_STATE');
 
+    // One screen per player, which is the only way two people play: there is a
+    // single camera and a single court view, so a second phone on one screen was
+    // never a second player. The friend opens the invite link and scans the code
+    // their OWN screen shows them.
+    const away = new Client('display');
+    await away.open();
+    away.send({ t: 'HELLO', role: 'display' });
+    await away.waitFor('WELCOME');
+    away.send({ t: 'ROOM_JOIN', room: state.room });
+    const awayState = await away.waitFor('ROOM_STATE');
+    const displays = [display, away];
+
     const phones = await Promise.all(
-      [state.pairUrl, state.otherPairUrl!].map(async (url, seat) => {
-        const frag = new URLSearchParams(url.split('#')[1]);
+      [state, awayState].map(async (st, seat) => {
+        const frag = new URLSearchParams(st.pairUrl.split('#')[1]);
         const phone = new Client('controller');
         await phone.open();
         phone.send({
           t: 'HELLO',
           role: 'controller',
           room: frag.get('r'),
-          seat,
+          seat: Number(frag.get('s')),
           pairToken: frag.get('t'),
         });
         await phone.waitFor('PAIRED');
@@ -894,16 +913,28 @@ describe('playing another human', () => {
     display.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
     const state = await display.waitFor('ROOM_STATE');
 
+    // One screen per player, which is the only way two people play: there is a
+    // single camera and a single court view, so a second phone on one screen was
+    // never a second player. The friend opens the invite link and scans the code
+    // their OWN screen shows them.
+    const away = new Client('display');
+    await away.open();
+    away.send({ t: 'HELLO', role: 'display' });
+    await away.waitFor('WELCOME');
+    away.send({ t: 'ROOM_JOIN', room: state.room });
+    const awayState = await away.waitFor('ROOM_STATE');
+    const displays = [display, away];
+
     const phones = await Promise.all(
-      [state.pairUrl, state.otherPairUrl!].map(async (url, seat) => {
-        const frag = new URLSearchParams(url.split('#')[1]);
+      [state, awayState].map(async (st, seat) => {
+        const frag = new URLSearchParams(st.pairUrl.split('#')[1]);
         const phone = new Client('controller');
         await phone.open();
         phone.send({
           t: 'HELLO',
           role: 'controller',
           room: frag.get('r'),
-          seat,
+          seat: Number(frag.get('s')),
           pairToken: frag.get('t'),
         });
         await phone.waitFor('PAIRED');
