@@ -86,6 +86,8 @@ export const CUE_CLASSES = [
   'stall.waiting',
   /** ...and it is now going on long enough to be funny. */
   'stall.long',
+  /** The commentator teaching somebody the game. See `commentary/tutor.ts`. */
+  'tutorial',
 ] as const;
 
 export type CueClass = (typeof CUE_CLASSES)[number];

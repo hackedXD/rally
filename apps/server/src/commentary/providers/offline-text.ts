@@ -196,6 +196,18 @@ const BANK_TEMPLATES: Record<CueClass, string[]> = {
     'This is the longest serve in the sport.',
     '{waited} seconds of nothing. Riveting.',
   ],
+  /*
+   * Deliberately empty, and it has to be.
+   *
+   * Coaching is written on demand in `commentary/tutor.ts`, keyed to the step
+   * the player is actually stuck on. A cold bank is the opposite of that — lines
+   * drawn at random, before the match, for whatever comes up — so a pre-written
+   * one here would eventually teach somebody the wrong step. `BANK_CLASSES` does
+   * not ask for this class; the entry exists because the map is exhaustive over
+   * every cue class, which is what makes adding one a compile error rather than
+   * a silent gap.
+   */
+  tutorial: [],
 };
 
 /** Templates that cite a concrete fact. These are what make it sound attentive. */

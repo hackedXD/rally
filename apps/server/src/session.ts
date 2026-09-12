@@ -185,6 +185,13 @@ export class SessionManager {
         return;
       }
 
+      case 'COACH': {
+        const room = this.roomOf(conn);
+        if (!room || conn.seat === null) return;
+        room.coach(conn.seat, msg.step, msg.nudge ?? false);
+        return;
+      }
+
       case 'READY':
       case 'START': {
         const room = this.roomOf(conn);

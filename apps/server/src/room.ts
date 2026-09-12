@@ -349,6 +349,17 @@ export class Room {
     return suffixed.toLowerCase() === taken.toLowerCase() ? fallback : suffixed;
   }
 
+  /**
+   * Have the commentator teach one tutorial step.
+   *
+   * The room supplies the two things the display cannot be trusted for: which
+   * sport is actually being played, and which seat is asking. The words are the
+   * commentator's own — see `commentary/tutor.ts`.
+   */
+  coach(seat: Seat, step: string, nudge: boolean): void {
+    void this.director.coach(step, this.sport.id, seat, nudge);
+  }
+
   setCalibrated(seat: Seat, yawOffset: number): void {
     this.slots[lane(seat)].yawOffset = yawOffset;
   }

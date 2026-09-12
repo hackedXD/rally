@@ -98,6 +98,13 @@ export type D2S =
   | { t: 'SPORT_SELECT'; sport: SportId }
   | { t: 'ADD_BOT'; skill: number }
   /**
+   * Teach this step out loud.
+   *
+   * A step NAME, never a line: the display owns the checklist, the server owns
+   * the commentator's words. See `commentary/tutor.ts`.
+   */
+  | { t: 'COACH'; step: string; nudge?: boolean }
+  /**
    * Rename this screen's own seat.
    *
    * Separate from the controller's READY, which also carries a name, because

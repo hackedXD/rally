@@ -9,10 +9,17 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GameEvent, Seat } from '@rally/protocol';
+import type { GameEvent, Seat, SportId } from '@rally/protocol';
+import { filterLine } from '../apps/server/src/commentary/filter.js';
+import {
+  TUTOR_STEPS,
+  coachLine,
+  isTutorStep,
+} from '../apps/server/src/commentary/tutor.js';
 import {
   AIM_TURN_RAD,
   MIN_DWELL_S,
+  NUDGE_AFTER_S,
   STRUGGLING,
   isMine,
   tutorialSteps,
@@ -126,5 +133,75 @@ describe('the tutorial checklist', () => {
     expect(isMine(ev({ type: 'point', seat: 0, data: { winner: 1 } }), 0 as Seat)).toBe(false);
     // An event belonging to nobody belongs to nobody.
     expect(isMine(ev({ type: 'bounce' }), 0 as Seat)).toBe(false);
+  });
+});
+
+/**
+ * The spoken half.
+ *
+ * The checklist lives in the browser and the script lives on the server, so the
+ * thing most likely to break is not either one — it is the join. A step renamed
+ * on one side and not the other produces a tutorial that advances in silence,
+ * which nothing else here would catch.
+ */
+describe('the commentator teaching it', () => {
+  const SPORTS: SportId[] = ['pickleball', 'tabletennis', 'badminton'];
+
+  it('has a line for every step the display can ask about', () => {
+    for (const sport of SPORTS) {
+      for (const step of tutorialSteps(sport)) {
+        expect(isTutorStep(step.id)).toBe(true);
+        expect(coachLine(step.id as never, sport).length).toBeGreaterThan(0);
+      }
+    }
+    // ...and the welcome, which is the commentator's alone — no card shows it.
+    expect(isTutorStep('intro')).toBe(true);
+    // A step name off the wire is matched against this list and nothing else.
+    expect(isTutorStep('serve')).toBe(true);
+    expect(isTutorStep('__proto__')).toBe(false);
+    expect(isTutorStep('')).toBe(false);
+  });
+
+  it('says something different the second time, for every step', () => {
+    // A coach who repeats the sentence you did not understand is not coaching.
+    for (const sport of SPORTS) {
+      for (const step of TUTOR_STEPS) {
+        expect(coachLine(step, sport, true)).not.toBe(coachLine(step, sport));
+      }
+    }
+  });
+
+  it('clears the filter every other spoken line has to clear', () => {
+    // These go to the same voice, under the same hold on play, so they are held
+    // to the same ceiling — including once a sixteen-character name is in them.
+    for (const sport of SPORTS) {
+      for (const step of TUTOR_STEPS) {
+        for (const nudge of [false, true]) {
+          const line = coachLine(step, sport, nudge).replace(/\{player\}/g, 'W'.repeat(16));
+          const r = filterLine(line);
+          expect(r.ok, `${sport}/${step}${nudge ? ' (nudge)' : ''}: ${r.reason}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('teaches table tennis as its own game', () => {
+    for (const step of TUTOR_STEPS) {
+      const tt = coachLine(step, 'tabletennis');
+      // There is no telegraph ring at a table tennis table, so the voice must
+      // never send anybody looking for one.
+      expect(tt).not.toMatch(/ring/i);
+      // The steps that are genuinely the same game keep the same words rather
+      // than being reworded for the sake of it.
+      if (!['aim', 'serve', 'contact', 'point'].includes(step)) {
+        expect(tt).toBe(coachLine(step, 'pickleball'));
+      }
+    }
+    expect(coachLine('point', 'tabletennis')).toMatch(/spin|brush/i);
+  });
+
+  it('waits long enough before saying it again', () => {
+    // Longer than the dwell floor, or the second line lands on top of the first.
+    expect(NUDGE_AFTER_S).toBeGreaterThan(MIN_DWELL_S * 4);
   });
 });

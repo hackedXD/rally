@@ -263,6 +263,16 @@ export class RallyClient {
     this.send({ t: 'ADD_BOT', skill });
   }
 
+  /**
+   * Ask the commentator to teach one tutorial step.
+   *
+   * A step name, never a line. The display owns the checklist; the words are
+   * the commentator's, and live on the server with every other thing it says.
+   */
+  coach(step: string, nudge = false): void {
+    this.send({ t: 'COACH', step, ...(nudge ? { nudge: true } : {}) });
+  }
+
   /** The remembered name, already sanitised. */
   get name(): string {
     return this.playerName;

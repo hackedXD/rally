@@ -27,7 +27,7 @@ That plays the whole game with a mouse — no phone required. For the real thing
 |---|---|
 | **Sports** | Pickleball and badminton share one code path — two different courts, two different swings. Table tennis has its own engine: a regulation table, a ball that carries spin, and a bat with a position you have to put on the ball. Bowling ships as a compiling interface stub — see [Adding a sport](#adding-a-sport). |
 | **Controllers** | An iPhone held like a paddle, or a mouse. Both speak the identical protocol; the server cannot tell them apart. |
-| **Tutorial** | A coached first match against a weak bot. It reads the live game rather than scripting one, so what it teaches is the game you then play. |
+| **Tutorial** | A coached first match against a weak bot, taught out loud by the commentator. It reads the live game rather than scripting one, so what it teaches is the game you then play. |
 | **Names** | Set your own, on the screen or the phone. Remembered between sessions, sanitised before anything says it aloud. |
 | **Opponent** | Another human across the internet, or a built-in bot with a difficulty dial. |
 | **Commentary** | Works with no API keys at all. Add a Gemini key and an ElevenLabs key and the same pipeline upgrades in place. |
@@ -224,6 +224,29 @@ A button in the lobby. It pairs whatever you have — a phone if one is on your
 seat, the mouse if not — puts a bot at 0.25 skill opposite, and starts an
 ordinary match with a checklist drawn over it.
 
+**The commentator does the teaching.** The card in the corner holds the
+objective and the progress; the instruction is spoken, by the same voice that
+calls the rest of the match, because that voice is the only thing already
+watching the game with you — and a player mid-rally is watching a ball, not
+reading a box in the corner. It coaches rather than recites: sit on a step for
+thirteen seconds and you get the same point made a different way.
+
+The display sends a step *name* and the server says the words. Two reasons, and
+the second is the one that matters: every other line the commentator says is
+written on the server, so a script in the browser would be the only part of that
+voice that was not and would drift the first time either half was edited alone;
+and a client that could post text into a text-to-speech engine could make the
+commentator say anything at all, out loud, in front of an audience. An unknown
+step name gets nothing said. The script is `server/commentary/tutor.ts`; the
+checklist is `display/src/ui/tutorial.ts`; a test asserts every step the display
+can reach has a line, because a step renamed on one side produces a tutorial
+that advances in silence and nothing else would catch it.
+
+Coaching lines go out at priority 3 and wait for the airwaves like every other
+layer — a coach who talks over the call of the point they just made you win is
+worse than no coach — and a line whose step you have already finished by the
+time its turn comes is dropped rather than said late.
+
 It is **not a sandbox**, and that is the design rather than a shortcut. A sandbox
 has to be built, kept in step with the game, and then thrown away by the player
 the moment it ends — and the thing it teaches is the sandbox. Every step here is
@@ -246,6 +269,11 @@ was tried first and was wrong:
   something the game did.
 - **Steps have a dwell floor.** A cumulative checklist can otherwise tick three
   boxes in one frame and show none of them long enough to read.
+- **The welcome sits outside the step sequence.** It is asked for in the same
+  breath as the first step, and React runs a mount effect twice on purpose — so
+  a welcome that counted as a step arrived *after* the first instruction, and
+  the overtaking rule then dropped the instruction. The tutorial greeted you
+  warmly and never told you anything.
 
 Table tennis gets different words throughout: it has no telegraph ring to point
 at, and a tutorial that mentioned one would be teaching a control that is not on

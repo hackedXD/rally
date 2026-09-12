@@ -91,6 +91,17 @@ export const AIM_TURN_RAD = 0.25;
 /** Misses before a step starts offering a more specific hint. */
 export const STRUGGLING = 3;
 
+/**
+ * How long a player may sit on one step before the commentator says it again,
+ * differently, seconds.
+ *
+ * Long enough that somebody working at it is not interrupted, short enough that
+ * somebody who did not catch the instruction is not left guessing. A tutorial
+ * whose voice says a thing exactly once is a tutorial that fails everybody who
+ * looked away.
+ */
+export const NUDGE_AFTER_S = 13;
+
 export function tutorialSteps(sport: SportId): TutorialStep[] {
   const pingpong = sport === 'tabletennis';
 

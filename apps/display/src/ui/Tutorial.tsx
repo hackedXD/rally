@@ -2,9 +2,22 @@
  * The tutorial overlay.
  *
  * Reads the same snapshot buffer the scoreboard does and the same event stream
- * the commentator does, and ticks a checklist against them. It sends nothing and
- * changes nothing about the match — a player who ignores it entirely is playing
- * exactly the game a player who follows it is.
+ * the commentator does, and ticks a checklist against them. It changes nothing
+ * about the match — a player who ignores it entirely is playing exactly the game
+ * a player who follows it is.
+ *
+ * ── The commentator does the teaching ────────────────────────────────────────
+ *
+ * The card is the objective and the progress: what you are on, how far in you
+ * are, how to stop. The TEACHING is spoken, by the same voice that calls the
+ * rest of the match, because that voice is the one thing already looking at the
+ * game with you — and because a player mid-rally is watching a ball, not reading
+ * a box in the corner.
+ *
+ * So this sends a step NAME on every change and the server says the words. It
+ * does not send lines: the commentator's script lives with the commentator, in
+ * `server/commentary/tutor.ts`, and a display that could post text into a
+ * text-to-speech engine could make it say anything at all, out loud.
  *
  * See `./tutorial.ts` for the steps and why it coaches over a real match.
  */
@@ -14,7 +27,13 @@ import type { GameEvent, Quat, Seat, SportId } from '@rally/protocol';
 import { lane } from '@rally/protocol';
 import type { RallyClient } from '../net/client.js';
 import { useGame } from '../store/useGame.js';
-import { MIN_DWELL_S, isMine, tutorialSteps, type StepContext } from './tutorial.js';
+import {
+  MIN_DWELL_S,
+  NUDGE_AFTER_S,
+  isMine,
+  tutorialSteps,
+  type StepContext,
+} from './tutorial.js';
 
 interface Props {
   client: RallyClient;
@@ -45,6 +64,16 @@ export function Tutorial({ client, ownSeat, sport, onDone }: Props) {
   const anchor = useRef<Quat | null>(null);
   const aimed = useRef(0);
   const finished = useRef(false);
+  /**
+   * Steps the commentator has already been asked to teach.
+   *
+   * Keyed rather than counted because React may run an effect twice for one
+   * change — StrictMode does it deliberately — and the failure mode is the
+   * commentator saying the same instruction twice in a row, which sounds broken
+   * in a way a silent duplicate never would.
+   */
+  const taught = useRef(new Set<string>());
+  const nudged = useRef(new Set<string>());
   /*
    * Held in a ref so the interval below does not depend on it.
    *
@@ -73,6 +102,29 @@ export function Tutorial({ client, ownSeat, sport, onDone }: Props) {
     }
   }, [events, ownSeat]);
 
+  /*
+   * The welcome, before any step, and exactly once.
+   *
+   * The ref is not belt and braces. React runs a mount effect twice in
+   * development on purpose, and an empty dependency list does not stop it — so
+   * without this the welcome goes out a SECOND time, after the first step has
+   * already been asked for, and the server drops that step as overtaken. The
+   * symptom was a tutorial that greeted you warmly and then never told you
+   * anything.
+   */
+  useEffect(() => {
+    if (taught.current.has('intro')) return;
+    taught.current.add('intro');
+    client.coach('intro');
+  }, [client]);
+
+  useEffect(() => {
+    const id = steps.current[step]?.id;
+    if (!id || taught.current.has(id)) return;
+    taught.current.add(id);
+    client.coach(id);
+  }, [client, step]);
+
   useEffect(() => {
     const timer = setInterval(() => {
       const snap = client.snapshots.latest;
@@ -97,6 +149,12 @@ export function Tutorial({ client, ownSeat, sport, onDone }: Props) {
       const cur = steps.current[step];
       if (!cur || finished.current) return;
       const elapsed = (performance.now() - stepStart.current) / 1000;
+      // Still here a while later? Say it again, differently. The server picks
+      // the second phrasing; this only decides when it is warranted.
+      if (elapsed > NUDGE_AFTER_S && !nudged.current.has(cur.id)) {
+        nudged.current.add(cur.id);
+        client.coach(cur.id, true);
+      }
       const ctx: StepContext = {
         mine: mine.current,
         phase: snap?.phase ?? 'lobby',
