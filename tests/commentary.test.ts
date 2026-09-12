@@ -402,6 +402,69 @@ describe('the Director, end to end', () => {
     h.director.dispose();
   }, 60_000);
 
+  it('says something when nothing is happening', async () => {
+    // The failure a commentator cannot cover for. A ball goes out and nobody
+    // fetches it, or a player puts their phone down mid-serve; the game sits
+    // there, the commentary sits there with it, and the room concludes the thing
+    // is broken. Every other cue is a reaction to something that happened.
+    const h = harness();
+    await h.director.prepare();
+
+    const stall = (id: string, long: boolean): GameEvent => ({
+      id,
+      t: h.now,
+      type: 'stall',
+      seat: 0,
+      data: { seat: 0, player: 'Ada', waitedMs: long ? 9000 : 5000, waitedS: long ? 9 : 5, long },
+      salience: long ? 0.6 : 0.4,
+      priority: 1,
+    });
+
+    h.director.onEvent(stall('s1', false));
+    expect(h.played.length).toBe(1);
+    const first = h.spokenTexts()[0];
+    expect(first.length).toBeGreaterThan(3);
+
+    // The second remark, once the wait has gone on long enough to be funny, is a
+    // different line — a commentator who says the same thing twice about the
+    // same silence is worse than one who says nothing.
+    h.advance(4000);
+    h.director.onEvent(stall('s2', true));
+    expect(h.played.length).toBe(2);
+    expect(normalizeLine(h.spokenTexts()[1])).not.toBe(normalizeLine(first));
+    h.director.dispose();
+  }, 30_000);
+
+  it('keeps every line short enough to fit inside the hold on play', async () => {
+    // Length is a rule, not a preference. Play is held while the commentator is
+    // talking, that hold is capped, and a line longer than the cap is one the
+    // game starts playing underneath — which is the exact thing the hold exists
+    // to prevent.
+    const h = harness(['Ada', 'Bolt']);
+    await h.director.prepare();
+
+    const { events, match } = playMatch({ seed: 4242, skill: 0.5 });
+    h.setStats(match.getStats());
+    let simTime = 0;
+    for (const e of events) {
+      h.advance(Math.max(0, e.t - simTime));
+      simTime = e.t;
+      h.director.onEvent(e);
+    }
+    await sleep(400);
+
+    const spoken = h.spokenTexts().filter((t) => t !== '(streamed)');
+    expect(spoken.length).toBeGreaterThan(5);
+    for (const line of spoken) {
+      expect(line.length).toBeLessThanOrEqual(130);
+    }
+    // ...and most of them are a good deal shorter than the ceiling. A bank that
+    // sits at the limit has not been written short, it has been truncated.
+    const median = [...spoken].sort((a, b) => a.length - b.length)[Math.floor(spoken.length / 2)];
+    expect(median.length).toBeLessThan(70);
+    h.director.dispose();
+  }, 60_000);
+
   it('degrades to static lines when every generator fails', async () => {
     const h = harness();
     // Break the writer the way a dead API would: every call rejects.

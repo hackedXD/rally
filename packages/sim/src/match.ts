@@ -49,6 +49,7 @@ import { resolveParams, type SimParams } from './params.js';
 import { bodyFinite, stepBall, surfaceAt, type BallBody } from './physics.js';
 import { predictContact, predictLanding, type ContactPrediction } from './predict.js';
 import { makeRng, type Rng } from './rng.js';
+import { StallWatch } from './stall.js';
 import { mapServeToShot, mapSwingToShot, type Shot, type ShotContext } from './shot.js';
 import type { DerivedState, SportModule } from './sport.js';
 import { evaluateStrike, strikeDifficulty, type StrikeEval } from './strike.js';
@@ -197,6 +198,8 @@ export class Match implements MatchEngine {
   private lastShot: { seat: Seat; shot: Shot; quality: number } | null = null;
   private prevDerived: DerivedState | null = null;
   private derivedDirty = false;
+  /** Notices when a serve is not coming. See `StallWatch`. */
+  private stall = new StallWatch();
   private history: { t: Millis; p: Vec3; v: Vec3 }[] = [];
   private matchWinner: Seat | null = null;
   /** Resolved sport constants for this match. */
@@ -349,6 +352,7 @@ export class Match implements MatchEngine {
     // the SERVE button launches it, and after a long wait the sim serves for
     // them — a demo must never stall on someone who didn't understand the UI.
     const server = this.score.server;
+    this.checkStall(server);
     const hand = this.handPosition(server);
     this.body = {
       p: hand,
@@ -1115,6 +1119,25 @@ export class Match implements MatchEngine {
       for (const e of this.sport.classifyEvents(this.prevDerived, next)) this.events.push(e);
     }
     this.prevDerived = next;
+  }
+
+  /**
+   * Say something when the serve is not coming.
+   *
+   * Ahead of the auto-serve below, deliberately: the commentator should be the
+   * one who notices the wait, not the one explaining a serve the sim just played
+   * on the player's behalf. Skipped for a bot, which is always about to serve.
+   */
+  private checkStall(server: Seat): void {
+    if (this.players[server].bot) return;
+    const e = this.stall.check({
+      t: this.t,
+      phaseT: this.phaseT,
+      phase: this.phase,
+      seat: server,
+      name: this.players[server].name,
+    });
+    if (e) this.events.push(e);
   }
 
   private derived(): DerivedState {

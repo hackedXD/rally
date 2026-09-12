@@ -13,6 +13,7 @@ export * from './rng.js';
 export * from './scoring.js';
 export * from './shot.js';
 export * from './sport.js';
+export * from './stall.js';
 export * from './stats.js';
 export * from './strike.js';
 export * from './match.js';

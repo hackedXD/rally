@@ -38,6 +38,7 @@ import type { BallBody } from '../physics.js';
 import type { ContactPrediction } from '../predict.js';
 import { resolveParams, type SimParams } from '../params.js';
 import { makeRng, type Rng } from '../rng.js';
+import { StallWatch } from '../stall.js';
 import type { DerivedState, SportModule } from '../sport.js';
 import { cloneStats, emptyStats, seatOf, type MatchStats } from '../stats.js';
 import type { Simulation, TickInput } from '../match.js';
@@ -147,6 +148,8 @@ export class PingPongMatch implements Simulation {
    * completely still bat.
    */
   private animUntil: [Millis, Millis] = [0, 0];
+  /** Notices when a serve is not coming. See `StallWatch`. */
+  private stall = new StallWatch();
 
   constructor(opts: PingPongOptions) {
     this.sport = opts.sport;
@@ -187,6 +190,7 @@ export class PingPongMatch implements Simulation {
     this.prediction = null;
     this.rally = 0;
     this.phase = 'lobby';
+    this.stall.reset();
     this.face = [0, 0];
     this.reach = [0, 0];
     for (const seat of LANE) this.bots[seat].state = newPpBot();
@@ -272,6 +276,7 @@ export class PingPongMatch implements Simulation {
     }
 
     this.expireAnims();
+    this.checkStall();
     this.stepBots();
     this.autoServe();
     this.advance();
@@ -329,6 +334,28 @@ export class PingPongMatch implements Simulation {
         z: prev ? (prev.z ?? 0) + (this.reach[seat] - (prev.z ?? 0)) * AIM.SMOOTH : this.reach[seat],
       });
     }
+  }
+
+  /**
+   * Say something when the serve is not coming.
+   *
+   * Before `autoServe` in the tick, deliberately: the commentator should be the
+   * one who notices the wait, not the one explaining a serve the game just
+   * played on the player's behalf.
+   */
+  private checkStall(): void {
+    const server = this.state.server;
+    // A bot always serves. Remarking on a wait it is about to end reads as the
+    // commentator not watching the same match as everyone else.
+    if (this.bots[server].on) return;
+    const e = this.stall.check({
+      t: this.t,
+      phaseT: this.phaseT,
+      phase: this.phase,
+      seat: server as Seat,
+      name: this.players[server].name,
+    });
+    if (e) this.events.push(e);
   }
 
   /**

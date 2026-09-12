@@ -69,6 +69,12 @@ const BANK_CLASSES: CueClass[] = [
   'comeback',
   'gamepoint',
   'match.end',
+  // Nothing is happening, and the moment it starts not happening is exactly when
+  // a cached line is worth most: there is no rally to speak over and nothing to
+  // wait for, so a line that needs a round trip arrives into silence that has
+  // already been noticed.
+  'stall.waiting',
+  'stall.long',
 ];
 
 export interface DirectorHost {

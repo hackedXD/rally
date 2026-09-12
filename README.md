@@ -156,6 +156,22 @@ either way:
 - **L2 — live.** Runs in the dead time after a point, where 1.5 seconds is free.
   Gets the full narrative and is required to cite a specific fact.
 
+**Lines are short, and that is enforced rather than requested.** Speech runs at
+about 2.6 words a second, play is held while the commentator is talking, and that
+hold is capped — so a line longer than the cap is one the game starts playing
+underneath, which is the exact thing the hold exists to prevent. The prompt asks
+for four to ten words; the output filter guarantees it, rejecting anything over
+130 characters. The offline bank's median line is five words. A twenty-word quip
+is not twice as funny as a ten-word one.
+
+**It also notices when nothing is happening.** Every other cue reacts to something
+that occurred; `stall` reacts to the absence of one. A ball goes out and nobody
+fetches it, or a player puts their phone down mid-serve — the game sits there, the
+commentary sits there with it, and the room concludes the thing is broken. Five
+seconds into a serve that is not coming it says something; nine seconds in it says
+something ruder. Both land before the simulation serves on the player's behalf at
+twelve, because the commentator should be the one who noticed first.
+
 To use the real APIs:
 
 ```bash

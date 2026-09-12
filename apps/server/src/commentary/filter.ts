@@ -43,7 +43,20 @@ export function filterLine(raw: string, allowPlaceholders = false): FilterResult
   const text = tidy(raw);
 
   if (text.length < 4) return { ok: false, reason: 'too short', text };
-  if (text.length > 240) return { ok: false, reason: 'too long', text };
+  /*
+   * The length ceiling, and it is a real rule rather than a sanity check.
+   *
+   * The prompt asks for four to fourteen words, but a prompt is a request. This
+   * is the guarantee, and it is set from what the line has to fit inside: speech
+   * runs at about 2.6 words a second, play is held while the commentator is
+   * talking, and that hold is capped at `commentary.holdPlayMaxMs`. A line
+   * longer than this is one the game would start playing underneath — which is
+   * the exact thing the hold exists to prevent.
+   *
+   * 130, not 240. Twice the length is twice the time the match spends waiting,
+   * and a twenty-word quip is not twice as funny as a ten-word one.
+   */
+  if (text.length > 130) return { ok: false, reason: 'too long', text };
 
   const lower = ` ${text.toLowerCase()} `;
   for (const word of BANNED) {
