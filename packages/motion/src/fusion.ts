@@ -243,4 +243,30 @@ export class Fusion {
   get yawOffset(): number {
     return 2 * Math.atan2(this.cal.pre[1], this.cal.pre[3]);
   }
+
+  /**
+   * Nudge the applied yaw by `d` radians.
+   *
+   * The hook the drift fixes in `yaw.ts` pull on. A READY tap re-zeros outright;
+   * this is the small, continuous correction that holds the heading in between,
+   * and it is deliberately additive — the player's own calibration is the datum
+   * and these only ever adjust it.
+   */
+  nudgeYaw(d: number): void {
+    if (!Number.isFinite(d) || d === 0) return;
+    this.cal = {
+      pre: qnorm(qmul(qFromAxisAngle([0, 1, 0], d), this.cal.pre)),
+      post: this.cal.post,
+    };
+  }
+
+  /** The heading the paddle is currently pointing, in the calibrated frame. */
+  get heading(): number {
+    return headingOf(this.paddleQ);
+  }
+
+  /** ...and in the raw device frame, which is where drift is measured. */
+  get rawHeading(): number {
+    return headingOf(qnorm(qmul(this.qDev, this.cal.post)));
+  }
 }

@@ -47,6 +47,18 @@ export function Hud({ client, ownSeat }: Props) {
   // Between points, and at the start of one: the beat where both bats have to
   // come up. Missing `ready` is an older replay, where nothing was ever waiting.
   const waiting = (phase === 'serve' || phase === 'point') && snap?.ready !== undefined;
+  const readyState = snap?.ready ?? [true, true];
+  const bothReady = readyState[0] && readyState[1];
+  const mine = lane(ownSeat);
+  const theirs = mine === 0 ? 1 : 0;
+  const nameOf = (i: 0 | 1) => names[i] ?? `Player ${i + 1}`;
+  // Whose tap is actually missing. Both, yours, or theirs — three different
+  // sentences, because "ready up" is useless to the player who already has.
+  const readyPrompt = !readyState[mine]
+    ? readyState[theirs]
+      ? 'Hold your phone up at the screen and tap READY'
+      : 'Both players: hold your phone up and tap READY'
+    : `Waiting for ${nameOf(theirs)}`;
   const now = performance.now();
   const showBanner = banner && now - banner.at < banner.ttl;
   const showSub = subtitle && now - subtitle.at < 6000;
@@ -88,6 +100,24 @@ export function Hud({ client, ownSeat }: Props) {
         </div>
         {side(1)}
       </div>
+
+      {/*
+        * The ready-up, at the size of the thing it is blocking.
+        *
+        * A lamp on the scorebug says who is holding play up; it does not tell a
+        * first-time player holding a phone what to do about it. This does, in
+        * the one window where nothing else is happening and nothing is being
+        * covered — between points, with the ball dead.
+        *
+        * It names whose tap is missing, because "ready up" with both players
+        * standing there is a prompt neither of them knows is theirs.
+        */}
+      {waiting && !bothReady && (
+        <div className="readyup">
+          <div className="readyup-big">Ready up</div>
+          <div className="readyup-sub">{readyPrompt}</div>
+        </div>
+      )}
 
       {rally > 3 && phase === 'rally' && <div className="rally-tag">{rally} shots</div>}
 

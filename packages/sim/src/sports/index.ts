@@ -15,7 +15,12 @@ export const SPORTS: Record<SportId, SportModule> = {
   bowling,
 };
 
-export const SPORT_ORDER: SportId[] = ['pickleball', 'tabletennis', 'badminton', 'bowling'];
+/**
+ * Table tennis leads: it is the sport with its own engine, its own physics and
+ * the spin model, and the one the product is actually about. The other two share
+ * the generic engine and ship as previews behind it.
+ */
+export const SPORT_ORDER: SportId[] = ['tabletennis', 'pickleball', 'badminton', 'bowling'];
 
 export function getSport(id: SportId | string | undefined): SportModule {
   if (id && id in SPORTS) return SPORTS[id as SportId];

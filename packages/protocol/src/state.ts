@@ -213,4 +213,6 @@ export interface SportMeta {
   tagline: string;
   /** False for sports that ship only as a compiling interface stub. */
   playable: boolean;
+  /** Playable, but on the shared engine and not tuned to the same standard. */
+  beta?: boolean;
 }

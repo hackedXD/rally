@@ -45,6 +45,12 @@ export interface SportModule {
   rallyBased: boolean;
   /** False for sports that ship only as an interface stub. */
   playable: boolean;
+  /**
+   * Playable, but not the finished article — the generic engine rather than the
+   * hand-built one, and not tuned to the same standard. Marked on the rack so a
+   * first-time player knows which one the product is about.
+   */
+  beta?: boolean;
   tagline: string;
   court: CourtSpec;
   ball: BallSpec;
@@ -62,5 +68,6 @@ export function sportMeta(s: SportModule): SportMeta {
     rallyBased: s.rallyBased,
     tagline: s.tagline,
     playable: s.playable,
+    beta: s.beta ?? false,
   };
 }

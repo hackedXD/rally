@@ -9,6 +9,7 @@
 
 import {
   Fusion,
+  PP_FUSION,
   PP_SWING,
   SwingDetector,
   newPpSwing,
@@ -19,7 +20,8 @@ import {
   type OrientationSample,
   type PpSwingState,
 } from '@rally/motion';
-import { vlen, vnorm, type Quat, type SwingInput, type Vec3 } from '@rally/protocol';
+import { anchorYaw, angleDelta, newDrift, noYaw, trackDrift } from '@rally/motion';
+import { qrot, vlen, vnorm, type Quat, type SwingInput, type Vec3 } from '@rally/protocol';
 
 export interface SensorGrant {
   motion: boolean;
@@ -169,6 +171,19 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
   let hzTicks = 0;
   let hzAt = 0;
 
+  /*
+   * Holding the court still between READY taps.
+   *
+   * A tap re-zeros outright and is never wrong, but a rally lasts a lot longer
+   * than a tap, and iOS `alpha` wanders degrees per minute the whole way through
+   * it. These are the three corrections that run in between — see `yaw.ts`.
+   */
+  let yawState = noYaw();
+  let drift = newDrift();
+  /** How long the bat has been held still and upright, which means "at the court". */
+  let steadySince = 0;
+  const STEADY_MS = 400;
+
   const onOrientation = (ev: DeviceOrientationEvent) => {
     if (ev.alpha === null || ev.beta === null || ev.gamma === null) return;
     const sample: OrientationSample = {
@@ -178,6 +193,27 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
       screen: screenAngle(),
     };
     fusion.pushOrientation(sample);
+
+    // iOS reports an absolute compass heading alongside the relative one, on the
+    // same event. Absent everywhere else, and ignored when its own accuracy
+    // reading says it is junk — so this does nothing at all on a device without
+    // a usable magnetometer, and the still-bat anchor below carries on alone.
+    const withCompass = ev as DeviceOrientationEvent & {
+      webkitCompassHeading?: number;
+      webkitCompassAccuracy?: number;
+    };
+    const before = drift.d;
+    drift = trackDrift(
+      drift,
+      fusion.rawHeading,
+      withCompass.webkitCompassHeading,
+      withCompass.webkitCompassAccuracy,
+    );
+    // Feed back only the CHANGE since the last correction. The absolute offset
+    // is the player's own calibration and is not ours to overwrite.
+    if (drift.have && before !== drift.d) {
+      fusion.nudgeYaw(-angleDelta(drift.d, before));
+    }
   };
 
   const onMotion = (ev: DeviceMotionEvent) => {
@@ -210,6 +246,7 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
         : null,
     };
     fusion.pushMotion(sample, t);
+    anchorToCourt(t);
     if (tableTennis) {
       const swing = pp.feed(t, fusion);
       handlers.onPose(fusion.paddleQ, t, fusion.omegaDeg, pp.reach, pp.sway, pp.armed);
@@ -219,6 +256,40 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
     handlers.onPose(fusion.paddleQ, t, fusion.omegaDeg, 0, 0, false);
     const swing = swings.feed(t, fusion.linearAccel, fusion.paddleQ);
     if (swing) handlers.onSwing(swing, t);
+  };
+
+  /**
+   * A bat held still and upright is pointing at the court, because that is what
+   * waiting for a serve IS. So that reading re-anchors the heading.
+   *
+   * The "held up" test is deliberately strict — face near horizontal AND the
+   * phone's top near vertical. A looser one passes for a phone resting against a
+   * leg, so standing between points would teach the game that the player's leg
+   * was the far end of the court, and that is drift you can feel arriving.
+   */
+  const anchorToCourt = (t: number): void => {
+    const back = qrot(fusion.paddleQ, [0, 0, 1]);
+    const top = qrot(fusion.paddleQ, [0, 1, 0]);
+    const up = Math.abs(back[1]) < 0.45 && top[1] > 0.75;
+    const still = vlen(fusion.omegaDeg) < PP_FUSION.STILL_DPS;
+    if (!still || !up) {
+      steadySince = 0;
+      return;
+    }
+    if (!steadySince) {
+      steadySince = t;
+      return;
+    }
+    const stillMs = t - steadySince;
+    if (stillMs < STEADY_MS) return;
+    // With a working compass the wander is already cancelled, so this only ever
+    // needs to SEED. Leaving the pull on as well would slowly steal a deliberate
+    // aim in exchange for fixing something that is no longer broken.
+    if (yawState.confirmed && drift.have) return;
+    const seen = fusion.heading;
+    const next = anchorYaw(yawState, seen, stillMs);
+    fusion.nudgeYaw(-angleDelta(next.yaw, yawState.yaw));
+    yawState = next;
   };
 
   window.addEventListener('deviceorientation', onOrientation);

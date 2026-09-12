@@ -591,6 +591,47 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
  * answers the same question. Optic when lit: the serve is the action that starts
  * play, and this is the last thing standing in front of it.
  */
+/*
+ * The ready-up prompt, between points.
+ *
+ * Optic, because readying up IS the action that starts play, and it is the only
+ * optic field on screen in the window it appears — the ball is dead and the
+ * timing ring is not drawn. Square, flat, no shadow: a painted plate laid across
+ * the court for the seconds when there is no play to cover.
+ */
+.readyup {
+  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%);
+  background: var(--optic); color: var(--ink);
+  border: var(--tape-heavy, 9px) solid var(--line);
+  padding: 26px 52px; text-align: center;
+  z-index: 30; pointer-events: none;
+}
+.readyup-big {
+  font-family: var(--display); font-size: clamp(38px, 6vw, 74px); line-height: 1;
+}
+.readyup-sub {
+  margin-top: 12px;
+  font-size: clamp(14px, 1.4vw, 19px); font-weight: 800;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/*
+ * Beta, beside a sport's name on the rack.
+ *
+ * Carnegie Red on the apron, tape border, square — a label, never the optic
+ * signal, which belongs to the ball and the action that starts play. Small and
+ * raised because it annotates the name rather than competing with it.
+ */
+.rack-name .beta {
+  display: inline-block; vertical-align: super;
+  margin-left: 14px;
+  padding: 4px 9px;
+  font-family: var(--text); font-size: 13px; font-weight: 800;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--line); background: var(--flag);
+  border: 3px solid var(--line);
+}
+
 .scorebug .lamp {
   width: 11px; height: 11px; border-radius: 50%;
   background: transparent; border: 2px solid currentColor; opacity: 0.45;

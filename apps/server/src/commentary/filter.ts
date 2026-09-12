@@ -10,6 +10,8 @@
  * a mangled line is worse than the cached one it would have replaced.
  */
 
+import { TUNING } from '@rally/protocol';
+
 const BANNED = [
   // Profanity and slurs, stems only; matched on word boundaries below.
   'fuck', 'shit', 'cunt', 'bitch', 'bastard', 'dick', 'piss', 'whore', 'slut',
@@ -39,6 +41,18 @@ export interface FilterResult {
   text: string;
 }
 
+/**
+ * The longest line that still fits inside the hold on play.
+ *
+ * Speech is ~2.6 words per second and an English word is ~5.5 characters with
+ * its space, so the hold's seven seconds buy about eighteen words. A tenth is
+ * left as headroom for a slow voice and the network under it, because a line cut
+ * off mid-sentence is worse than a line that was never written.
+ */
+export const LINE_MAX_CHARS = Math.floor(
+  (TUNING.commentary.holdPlayMaxMs / 1000) * 2.6 * 5.5 * 0.9,
+);
+
 export function filterLine(raw: string, allowPlaceholders = false): FilterResult {
   const text = tidy(raw);
 
@@ -53,10 +67,17 @@ export function filterLine(raw: string, allowPlaceholders = false): FilterResult
    * longer than this is one the game would start playing underneath — which is
    * the exact thing the hold exists to prevent.
    *
+   * Derived, not picked: the hold on play is `commentary.holdPlayMaxMs`, speech
+   * runs at about 2.6 words a second, and an English word averages 5.5
+   * characters with its space. A line at the old 130 took about nine seconds to
+   * say and the hold is seven, so the longest lines were the ones being talked
+   * over — the exact thing the hold exists to prevent. See LINE_MAX_CHARS.
+   *
+   * The old note, still true about why a ceiling exists at all:
    * 130, not 240. Twice the length is twice the time the match spends waiting,
    * and a twenty-word quip is not twice as funny as a ten-word one.
    */
-  if (text.length > 130) return { ok: false, reason: 'too long', text };
+  if (text.length > LINE_MAX_CHARS) return { ok: false, reason: 'too long', text };
 
   const lower = ` ${text.toLowerCase()} `;
   for (const word of BANNED) {

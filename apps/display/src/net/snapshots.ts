@@ -159,7 +159,23 @@ export class SnapshotBuffer {
     let extrapolated = false;
     let stalled = false;
 
-    if (a.ball && b.ball) {
+    /*
+     * A dead ball is not in flight, so it must not be flown.
+     *
+     * Between points the ball is resting where the rally ended, and at a serve
+     * it is held in the server's hand. Interpolating across the moment it is
+     * RESET drags it over the court in a single frame, and extrapolating it
+     * afterwards throws it forward under gravity from a velocity that no longer
+     * means anything — which is the ball twitching back and forth in the net
+     * after a point. Neither is lag; both are arithmetic applied to a ball the
+     * simulation has already stopped simulating.
+     */
+    const dead = base.phase === 'point' || base.phase === 'gameover';
+    const crossed = a.phase !== b.phase;
+
+    if (dead || crossed) {
+      ball = base.ball ? { ...base.ball } : null;
+    } else if (a.ball && b.ball) {
       ball = {
         p: [
           lerp(a.ball.p[0], b.ball.p[0], f),
@@ -181,7 +197,7 @@ export class SnapshotBuffer {
 
     // Underrun: the newest snapshot is already behind the render time.
     const newest = this.buffer[this.buffer.length - 1];
-    if (target > newest.t && newest.ball) {
+    if (!dead && !crossed && target > newest.t && newest.ball) {
       const ahead = target - newest.t;
       const dt = Math.min(ahead, TUNING.net.extrapolateMaxMs) / 1000;
       extrapolated = dt > 0.001;

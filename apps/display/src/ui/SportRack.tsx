@@ -186,6 +186,10 @@ export function SportRack({ client, onTakeCourt }: Props) {
               the name arriving is the same moment the court finishes re-striping. */}
           <h1 className={`rack-name${stub ? ' stub' : ''}`} key={current?.id ?? 'none'}>
             {current?.displayName ?? 'Connecting'}
+            {/* Playable, but on the shared engine rather than the hand-built
+                table tennis one. Said plainly and next to the name, so nobody
+                finds out by playing it and wondering why it feels different. */}
+            {current?.beta && <span className="beta">Beta</span>}
           </h1>
           <p className="rack-sub">
             {stub

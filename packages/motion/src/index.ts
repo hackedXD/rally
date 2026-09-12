@@ -11,4 +11,5 @@ export * from './swing.js';
 export * from './predict.js';
 export * from './pingpong-swing.js';
 export * from './calibration.js';
+export * from './yaw.js';
 export * from './source.js';

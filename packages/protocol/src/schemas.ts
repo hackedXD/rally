@@ -198,6 +198,7 @@ const sportMeta = z.object({
   rallyBased: z.boolean(),
   tagline: z.string(),
   playable: z.boolean(),
+    beta: z.boolean().optional(),
 });
 
 export const s2dSchema = z.discriminatedUnion('t', [

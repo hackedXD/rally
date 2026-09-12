@@ -146,7 +146,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    client.connect('pickleball', new URLSearchParams(location.search).get('room'));
+    client.connect('tabletennis', new URLSearchParams(location.search).get('room'));
     return () => client.close();
   }, [client]);
 

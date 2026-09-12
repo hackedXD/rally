@@ -10,6 +10,9 @@ export const pickleball: SportModule = {
   displayName: 'Pickleball',
   rallyBased: true,
   playable: true,
+  // The shared engine, not the hand-built table tennis one. Playable and fun;
+  // not tuned to the same standard, and the rack says so.
+  beta: true,
   tagline: 'Regulation court. Rally to 7. Mind the kitchen.',
 
   court: {

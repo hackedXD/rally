@@ -70,7 +70,7 @@ export class RallyClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
   private closedByUs = false;
-  private pendingSport: SportId = 'pickleball';
+  private pendingSport: SportId = 'tabletennis';
   private joinCode: string | null = null;
   /**
    * What this screen calls its player. Remembered across sessions, and claimed
