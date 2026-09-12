@@ -13,8 +13,16 @@ export * from './rng.js';
 export * from './scoring.js';
 export * from './shot.js';
 export * from './sport.js';
+export * from './stall.js';
 export * from './stats.js';
 export * from './strike.js';
 export * from './match.js';
+/**
+ * Table tennis runs its own engine. Namespaced rather than flattened: it has its
+ * own GRAVITY, its own TABLE, its own `step` — all of which mean something
+ * different from the shared simulation's, and all of which would collide.
+ */
+export * as pingpong from './pingpong/index.js';
+export { PingPongMatch, type PingPongOptions } from './pingpong/match.js';
 export * from './bot.js';
 export * from './sports/index.js';

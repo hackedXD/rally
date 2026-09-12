@@ -64,6 +64,11 @@ export const c2sSchema = z.discriminatedUnion('t', [
     seq: num,
     ct: num,
     q: z.tuple([num, num, num, num]),
+    // Table tennis: forward lean and cross-body travel, metres, and whether a
+    // stroke is in progress.
+    z: num.min(-2).max(2).optional(),
+    dx: num.min(-2).max(2).optional(),
+    hold: z.boolean().optional(),
   }),
   z.object({
     t: z.literal('SWING'),
@@ -73,6 +78,9 @@ export const c2sSchema = z.discriminatedUnion('t', [
     dir: vec3,
     q: quat,
     elev: num.min(-Math.PI).max(Math.PI),
+    // Table tennis: wrist rotation and hand velocity at peak. See SwingInput.
+    omega: vec3.optional(),
+    vsw: vec3.optional(),
   }),
   z.object({ t: z.literal('BUTTON'), button: z.enum(['serve', 'mute']) }),
   z.object({ t: z.literal('CALIBRATED'), yawOffset: num }),
@@ -89,6 +97,14 @@ export const d2sSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('ROOM_JOIN'), room: roomCode }),
   z.object({ t: z.literal('SPORT_SELECT'), sport: sportId }),
   z.object({ t: z.literal('ADD_BOT'), skill: num.min(0).max(1) }),
+  z.object({ t: z.literal('SET_NAME'), name: nameField }),
+  z.object({
+    t: z.literal('COACH'),
+    // A step name, matched against a fixed list on the server. Capped here so a
+    // malformed one is dropped at the boundary rather than carried inward.
+    step: z.string().max(32),
+    nudge: z.boolean().optional(),
+  }),
   z.object({ t: z.literal('READY') }),
   z.object({ t: z.literal('START') }),
   z.object({ t: z.literal('REMATCH') }),

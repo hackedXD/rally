@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   ClockSync,
+  NAME_KEY,
+  NAME_MAX,
   QUAT_IDENTITY,
   c2sSchema,
+  d2sSchema,
   dequantQuat,
+  filterName,
+  loadName,
   median,
   parseMessage,
   qFromUnitZTo,
@@ -13,6 +18,7 @@ import {
   quantQuat,
   safeParse,
   sanitizeName,
+  saveName,
   slerpDir,
   vangle,
   vnorm,
@@ -152,5 +158,96 @@ describe('player name sanitisation', () => {
     expect(sanitizeName('')).toBe('Player');
     expect(sanitizeName(null)).toBe('Player');
     expect(sanitizeName('a'.repeat(80)).length).toBe(16);
+  });
+});
+
+/**
+ * The remembered name.
+ *
+ * Worth testing in Node specifically. This module is compiled into the two
+ * browser apps but lives in the package the SERVER imports, so the no-storage
+ * path is not a hypothetical — it is what every test run and every server
+ * process takes, and a throw there is a blank page or a dead process.
+ */
+describe('the remembered player name', () => {
+  const fake = (): Map<string, string> => {
+    const store = new Map<string, string>();
+    (globalThis as Record<string, unknown>).localStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
+    return store;
+  };
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).localStorage;
+  });
+
+  it('survives having nowhere to store anything', () => {
+    // Node, a private window, a browser told to refuse site data.
+    expect(() => saveName('Ada')).not.toThrow();
+    expect(saveName('Ada')).toBe('Ada');
+    expect(loadName().length).toBeGreaterThan(0);
+  });
+
+  it('remembers what was set, under the key both surfaces read', () => {
+    const store = fake();
+    expect(saveName('Ada')).toBe('Ada');
+    // The phone and the screen agree on this string or they remember two
+    // different people.
+    expect(store.get(NAME_KEY)).toBe('Ada');
+    expect(loadName()).toBe('Ada');
+  });
+
+  it('sanitises on the way out as well as in', () => {
+    const store = fake();
+    // A name stored before the field existed, or typed into devtools, is still
+    // user input by the time the commentator reads it aloud.
+    store.set(NAME_KEY, '<b>Ada</b>');
+    expect(loadName()).toBe('bAdab');
+    expect(saveName('  Ada   Lovelace  ')).toBe('Ada Lovelace');
+    expect(saveName('💀')).toBe('Player');
+  });
+
+  it('invents one, once, when there is nothing to remember', () => {
+    const store = fake();
+    const first = loadName();
+    expect(first).toMatch(/^[A-Za-z]+ [A-Za-z]+$/);
+    // Kept, so a rematch does not rename somebody mid-session.
+    expect(store.get(NAME_KEY)).toBe(first);
+    expect(loadName()).toBe(first);
+    // Whitespace is not a name to be preserved.
+    store.set(NAME_KEY, '   ');
+    expect(loadName()).not.toBe('   ');
+  });
+
+  it('keeps a half-typed name typeable', () => {
+    // What the text boxes run on every keystroke. It must leave alone everything
+    // that could still become a real name — including the trailing space of
+    // "Ada ", without which the surname is unreachable, and the empty box you
+    // get from select-all-delete.
+    expect(filterName('Ada ')).toBe('Ada ');
+    expect(filterName('')).toBe('');
+    expect(filterName("O'Neil-Smith")).toBe("O'Neil-Smith");
+    // ...and it strips rather than rejects, so one stray character in a pasted
+    // name costs that character instead of the whole paste.
+    expect(filterName('Ada <3')).toBe('Ada 3');
+    expect(filterName('<script>')).toBe('script');
+    expect(filterName('💀')).toBe('');
+    expect(filterName('a'.repeat(NAME_MAX + 20)).length).toBe(NAME_MAX);
+  });
+
+  it('carries a name from the screen as well as the phone', () => {
+    // The screen had no way to name its own seat before: the only message with
+    // a name on it was the controller's READY.
+    const set = safeParse(d2sSchema, { t: 'SET_NAME', name: '  Ada<>  ' });
+    expect(set.ok && set.value.t === 'SET_NAME' && set.value.name).toBe('Ada');
+    // And it is sanitised at the boundary, not trusted from the client.
+    const long = safeParse(d2sSchema, { t: 'SET_NAME', name: 'a'.repeat(40) });
+    expect(long.ok && long.value.t === 'SET_NAME' && long.value.name.length).toBe(NAME_MAX);
+    // Past the field's own ceiling it is dropped rather than trimmed, exactly as
+    // READY is: a client sending sixty-four characters is not one to negotiate
+    // with.
+    expect(safeParse(d2sSchema, { t: 'SET_NAME', name: 'a'.repeat(200) }).ok).toBe(false);
   });
 });

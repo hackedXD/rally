@@ -60,6 +60,9 @@ export function classifyCue(e: GameEvent): CueClass | null {
     case 'match_end':
       return 'match.end';
 
+    case 'stall':
+      return d.long ? 'stall.long' : 'stall.waiting';
+
     case 'double_bounce':
       return null;
 

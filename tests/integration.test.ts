@@ -15,6 +15,7 @@ import { ControllerNet } from '../apps/controller/src/net.js';
 import {
   ClockSync,
   TUNING,
+  lane,
   parseMessage,
   qFromUnitZTo,
   quantQuat,
@@ -22,10 +23,12 @@ import {
   s2dSchema,
   vnorm,
   type PreloadedCue,
+  type Quat,
   type S2C,
   type S2D,
   type Seat,
   type Snapshot,
+  type Vec3,
 } from '@rally/protocol';
 
 const PORT = 8899;
@@ -513,7 +516,9 @@ describe('the real phone client', () => {
     display.send({ t: 'START' });
     await display.waitFor('MATCH_START', 20_000);
     for (let i = 0; i < 5; i++) {
-      net.pose(qFromUnitZTo(vnorm([0, 0.25, 1])), performance.now());
+      // A real rotation rate, so the pose that reaches the server is one the
+      // predictor has actually led forward rather than passed straight through.
+      net.pose(qFromUnitZTo(vnorm([0, 0.25, 1])), performance.now(), [0, 120, 0]);
       await sleep(60);
     }
     net.serve();
@@ -640,6 +645,131 @@ describe('protocol hardening', () => {
     a.close();
     b.close();
   }, 20_000);
+});
+
+describe('table tennis over the wire', () => {
+  /**
+   * The sport that does not run the shared engine, end to end.
+   *
+   * Everything the other tests exercise — pairing, snapshots, the clock, the
+   * commentary — routes through the same code for both engines, and is covered
+   * once above. What is only true here is the three channels this engine added:
+   * a bat with a position, driven by a pose; a `hold` that freezes it mid-stroke;
+   * and a swing carrying the wrist's rotation, which is where its spin comes
+   * from. None of those exist in the protocol for any other sport.
+   */
+  it('drives a bat from a pose and takes a swing with spin in it', async () => {
+    const display = new Client('display');
+    await display.open();
+    display.send({ t: 'HELLO', role: 'display' });
+    await display.waitFor('WELCOME');
+    display.send({ t: 'ROOM_CREATE', sport: 'tabletennis' });
+    const state = await display.waitFor('ROOM_STATE');
+    const frag = new URLSearchParams(state.pairUrl.split('#')[1]);
+
+    const phone = new Client('controller');
+    await phone.open();
+    phone.send({
+      t: 'HELLO',
+      role: 'controller',
+      room: frag.get('r'),
+      seat: 0,
+      pairToken: frag.get('t'),
+    });
+    const paired = await phone.waitFor('PAIRED');
+    // The phone is told the sport because it picks a swing detector from it:
+    // this one onsets on rotation, every other sport on acceleration.
+    expect(paired.sport).toBe('tabletennis');
+
+    phone.send({ t: 'READY', name: 'Ada' });
+    display.send({ t: 'ADD_BOT', skill: 0.45 });
+    display.send({ t: 'START' });
+    const started = await display.waitFor('MATCH_START', 20_000);
+    expect(started.sport).toBe('tabletennis');
+
+    await display.waitUntil(() => display.snapshots.length > 20, 8000, 'snapshots');
+
+    const batOf = (): Vec3 => {
+      const p = display.snapshots.at(-1)!.players.find((x) => lane(x.seat) === 0);
+      return p!.p;
+    };
+
+    // Tilt the bat's face toward the player's own right and hold it there. The
+    // bat has to follow — this is the whole difference from the other sports,
+    // where where you point and where you are are independent.
+    const tilt = (rad: number): Quat => [0, Math.sin(rad / 2), 0, Math.cos(rad / 2)];
+    const drive = async (q: Quat, hold = false): Promise<void> => {
+      for (let i = 0; i < 30; i++) {
+        phone.send({ t: 'POSE', seq: i, ct: performance.now(), q: quantQuat(q), z: 0.1, hold });
+        await sleep(16);
+      }
+      await sleep(120);
+    };
+
+    await drive(tilt(0.5));
+    const right = batOf();
+    await drive(tilt(-0.5));
+    const left = batOf();
+    // Opposite tilts must put the bat on opposite sides of centre, and by
+    // something you could see rather than a nudge.
+    expect(Math.sign(right[0])).toBe(-Math.sign(left[0]));
+    expect(Math.abs(right[0] - left[0])).toBeGreaterThan(0.4);
+
+    // `hold` freezes the position for the length of a stroke. The pose stays
+    // live, so the shot is unaffected; without it a swing drags the bat across
+    // the table, in opposite directions on a forehand and a backhand.
+    await drive(tilt(0.5), true);
+    expect(batOf()).toEqual(left);
+
+    // A swing carrying the wrist's rotation and the hand's velocity. It has to
+    // reach the simulation as a hit — `speed`/`dir` alone would still play, but
+    // flat, and the spin game is most of this sport.
+    await display.waitUntil(
+      () => display.snapshots.at(-1)?.phase === 'serve',
+      20_000,
+      'a serve to take',
+    );
+    const before = display.snapshots.at(-1)!.ball!;
+    for (let i = 0; i < 12 && display.snapshots.at(-1)?.ball?.owner === null; i++) {
+      phone.send({
+        t: 'SWING',
+        seq: 100 + i,
+        ctPeak: performance.now(),
+        speed: 6.5,
+        dir: vnorm([0, 0.68, 0.73]),
+        q: [0, 0, 0, 1],
+        elev: 0.75,
+        omega: [600, 0, 0],
+        // Up HARD, and the number matters. The bat's rise is the hand's times
+        // PADDLE.SWING_GAIN (0.36), so 6 m/s of hand is 2.16 m/s of bat — which
+        // beats the serve toss's 1.8 m/s at every point in its arc. Swing softer
+        // than the toss is climbing and the contact point drags UP the face
+        // instead of down it, which is backspin: you cannot loop a ball that is
+        // rising away from you. That is correct physics, and it made the sign
+        // here depend on exactly where in the toss the swing landed.
+        vsw: [0, 6.0, 2.4],
+      });
+      await sleep(180);
+    }
+    await display.waitUntil(
+      () => display.snapshots.at(-1)?.ball?.owner === 0,
+      6000,
+      'the swing to register as a hit',
+    );
+    const after = display.snapshots.at(-1)!.ball!;
+    // The toss goes straight up; a struck ball goes down the table.
+    expect(Math.abs(before.v[2])).toBeLessThan(0.5);
+    expect(after.v[2]).toBeGreaterThan(0.5);
+    // ...and a stroke that brushed UP the back of it loaded topspin, which no
+    // other sport in this protocol can even express. The sign is the whole point:
+    // `omega` and `vsw` exist so a swing can say which way the hand went, and a
+    // controller that sent only a speed and a direction would produce a flat ball
+    // here rather than a wrong one.
+    expect(after.spin).toBeGreaterThan(0);
+
+    phone.close();
+    display.close();
+  }, 60_000);
 });
 
 describe('playing another human', () => {

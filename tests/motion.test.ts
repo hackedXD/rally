@@ -5,9 +5,24 @@ import {
   GRAVITY,
   SwingDetector,
   headingOf,
+  leadTime,
+  predictQ,
   quatFromDeviceOrientation,
 } from '@rally/motion';
-import { DEG, TUNING, qrot, vangle, vlen, type Vec3 } from '@rally/protocol';
+import {
+  DEG,
+  RAD,
+  TUNING,
+  qAngle,
+  qFromRotVec,
+  qmul,
+  qnorm,
+  qrot,
+  vangle,
+  vlen,
+  type Quat,
+  type Vec3,
+} from '@rally/protocol';
 
 /** Feed a phone held still in a given orientation for `ms` milliseconds. */
 function hold(
@@ -296,6 +311,185 @@ describe('calibrator', () => {
     expect(cal.pre.every(Number.isFinite)).toBe(true);
     expect(Math.abs(headingOf(f.paddleQ))).toBeLessThan(0.02);
     expect(c.active).toBe(false);
+  });
+});
+
+// ── Stroke prediction ─────────────────────────────────────────────────────────
+
+/**
+ * A stroke, as a rotation rate over time: a bell-shaped pulse about an axis that
+ * turns as the wrist rolls into the forearm. Integrating it finely gives the
+ * truth to score a prediction against.
+ */
+function strokeTruth(peakDps: number, durMs: number, endMs = durMs + 200) {
+  const STEP = 1;
+  const frames: { q: Quat; w: Vec3 }[] = [];
+  let q: Quat = [0, 0, 0, 1];
+  for (let t = 0; t <= endMs; t += STEP) {
+    const u = t / durMs;
+    const rate = t < 0 || t > durMs ? 0 : peakDps * Math.sin(Math.PI * u) ** 2;
+    const roll = 0.9 * Math.min(1, Math.max(0, u));
+    const w: Vec3 = [
+      rate * Math.cos(roll),
+      rate * Math.sin(roll) * 0.6,
+      rate * Math.sin(roll) * 0.3,
+    ];
+    frames.push({ q, w });
+    const dt = STEP / 1000;
+    q = qnorm(qmul(q, qFromRotVec([w[0] * DEG * dt, w[1] * DEG * dt, w[2] * DEG * dt])));
+  }
+  return (t: number) => frames[Math.max(0, Math.min(frames.length - 1, Math.round(t / STEP)))];
+}
+
+describe('stroke prediction', () => {
+  it('agrees with the closed form: 90 deg/s for a second is a quarter turn', () => {
+    const spun = predictQ([0, 0, 0, 1], [90, 0, 0], 1000);
+    const quarter: Quat = [Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+    for (let i = 0; i < 4; i++) expect(spun[i]).toBeCloseTo(quarter[i], 6);
+  });
+
+  it('is a no-op when there is nothing to predict', () => {
+    const q: Quat = [0.2, -0.4, 0.1, 0.885];
+    // No horizon, a still paddle, and a rate that is only sensor noise.
+    expect(predictQ(q, [500, 0, 0], 0)).toEqual(q);
+    expect(predictQ(q, [500, 0, 0], -20)).toEqual(q);
+    expect(predictQ(q, [0, 0, 0], 50)).toEqual(q);
+    expect(predictQ(q, [1, -1, 0.5], 50)).toEqual(q);
+  });
+
+  it('composes in the paddle frame, not the player frame', () => {
+    // A paddle already tipped on its side, turning about its OWN axis. The two
+    // orders are the same quaternion only when the paddle is square to the
+    // player, which is exactly the case where the correction does not matter.
+    const tipped: Quat = [Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+    const body = predictQ(tipped, [0, 300, 0], 50);
+    const player = qmul(predictQ([0, 0, 0, 1], [0, 300, 0], 50), tipped);
+    expect(qAngle(body, player) * RAD).toBeGreaterThan(5);
+  });
+
+  /**
+   * The frame contract, end to end. `Fusion.omegaDeg` is reported in paddle axes
+   * and `Fusion.paddleQ` maps out of them, so predicting forward by one has to
+   * land on the other. Get the frame or the composition side wrong and this is
+   * the test that says so — everything else still looks plausible.
+   */
+  it('lands on the pose the fusion itself reports one horizon later', () => {
+    const f = new Fusion();
+    hold(f, { alpha: 40, beta: 65, gamma: -10 }, 400);
+    f.setCalibration(f.makeCalibration());
+
+    // Gyro only from here: no more orientation samples, so the complementary
+    // filter never pulls and qDev is exactly the integrated rate.
+    const rate = { alpha: 120, beta: -480, gamma: 260 }; // deg/s, device axes
+    const step = 1000 / 60;
+    const frames: { q: Quat; w: Vec3 }[] = [];
+    let t = 400;
+    for (let i = 0; i < 60; i++) {
+      f.pushMotion({ rotationRate: rate }, t);
+      frames.push({ q: f.paddleQ, w: f.omegaDeg });
+      t += step;
+    }
+
+    const HORIZON = 50;
+    const ahead = Math.round(HORIZON / step);
+    let worst = 0;
+    for (let i = 10; i + ahead < frames.length; i++) {
+      const predicted = predictQ(frames[i].q, frames[i].w, ahead * step);
+      worst = Math.max(worst, qAngle(predicted, frames[i + ahead].q) * RAD);
+    }
+    // At 560 deg/s a 50 ms horizon is 28 degrees of paddle. Landing inside a
+    // degree of it is the frames agreeing, not a coincidence.
+    expect(worst).toBeLessThan(1);
+  });
+
+  it('measures the horizon rather than assuming it, and caps it', () => {
+    const p = TUNING.predict;
+    // Half the round trip, because the pose has to be right when it arrives.
+    expect(leadTime(0, 60)).toBeCloseTo(30 + p.sensorLagMs, 6);
+    // Plus however long the sample sat in the flush buffer.
+    expect(leadTime(20, 60)).toBeCloseTo(50 + p.sensorLagMs, 6);
+    // A bad network is capped, not followed.
+    expect(leadTime(0, 4000)).toBe(p.maxLeadMs);
+    expect(leadTime(9000, 0)).toBe(p.maxLeadMs);
+    // Even on localhost the sensor itself is behind.
+    expect(leadTime(0, 0)).toBeGreaterThan(0);
+    // A clock that ran backwards must not predict backwards.
+    expect(leadTime(-50, -50)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('is switched off completely by predict.leadScale', () => {
+    const scale = TUNING.predict.leadScale;
+    try {
+      TUNING.predict.leadScale = 0;
+      expect(leadTime(30, 80)).toBe(0);
+      const q: Quat = [0.2, -0.4, 0.1, 0.885];
+      expect(predictQ(q, [700, 0, 0], leadTime(30, 80))).toEqual(q);
+    } finally {
+      TUNING.predict.leadScale = scale;
+    }
+  });
+
+  it('cannot lead further than the cap allows, whatever the rate', () => {
+    const cap = (TUNING.predict.maxLeadMs / 1000) * 2000 * 1.01; // 2000 deg/s
+    for (const dps of [200, 900, 2000]) {
+      const lead = leadTime(500, 5000);
+      const moved = qAngle([0, 0, 0, 1], predictQ([0, 0, 0, 1], [dps, 0, 0], lead)) * RAD;
+      expect(moved).toBeLessThanOrEqual(cap);
+      expect(moved).toBeLessThanOrEqual(dps * (TUNING.predict.maxLeadMs / 1000) + 1e-6);
+    }
+  });
+
+  /**
+   * The claim, measured. A pose put on the wire without prediction describes the
+   * paddle as it was one sensor lag plus one flush interval plus half a round
+   * trip ago; with prediction it describes where the paddle is going to be.
+   */
+  it('beats the stale pose over a real stroke at a real latency', () => {
+    const at = strokeTruth(700, 250);
+    const lag = TUNING.predict.sensorLagMs;
+    const flushMs = 1000 / TUNING.net.poseHz;
+    const sampleMs = 1000 / 60;
+
+    for (const rttMs of [20, 60, 120]) {
+      let stale = 0;
+      let led = 0;
+      let ledMax = 0;
+      let n = 0;
+      for (let flush = 0; flush <= 400; flush += flushMs) {
+        // The newest sample the flush can see, describing the paddle as it was
+        // one sensor lag before the handler ran.
+        const sampleT = Math.floor(flush / sampleMs) * sampleMs;
+        const src = at(sampleT - lag);
+        const want = at(flush + rttMs / 2).q;
+        stale += qAngle(src.q, want) * RAD;
+        const e = qAngle(predictQ(src.q, src.w, leadTime(flush - sampleT, rttMs)), want) * RAD;
+        led += e;
+        ledMax = Math.max(ledMax, e);
+        n++;
+      }
+      // Roughly 5x at 20 ms, falling to 1.7x at 120 ms where the cap starts
+      // refusing to compensate the whole trip. Never worse, at any latency.
+      expect(led / n).toBeLessThan(stale / n);
+      expect(led / n).toBeLessThan((stale / n) / 1.6);
+      // And the worst single frame stays inside what the cap permits.
+      expect(ledMax).toBeLessThan(30);
+    }
+  });
+
+  it('survives garbage without emitting garbage', () => {
+    const rng = mulberry(11);
+    for (let i = 0; i < 400; i++) {
+      const q = qnorm([rng() - 0.5, rng() - 0.5, rng() - 0.5, rng() - 0.5] as Quat);
+      const w: Vec3 = [(rng() - 0.5) * 6000, (rng() - 0.5) * 6000, (rng() - 0.5) * 6000];
+      const out = predictQ(q, w, leadTime((rng() - 0.5) * 500, (rng() - 0.5) * 900));
+      expect(out.every(Number.isFinite)).toBe(true);
+      expect(Math.hypot(...out)).toBeCloseTo(1, 9);
+    }
+    // A timestamp that is not a number contributes nothing rather than
+    // everything: an unusable measurement is a reason to predict less, and the
+    // alternative is a nonsense clock reading buying the maximum lead.
+    expect(leadTime(Number.NaN, Number.NaN)).toBe(TUNING.predict.sensorLagMs);
+    expect(leadTime(Number.POSITIVE_INFINITY, 0)).toBe(TUNING.predict.sensorLagMs);
   });
 });
 

@@ -26,6 +26,27 @@ export interface SwingInput {
   elev: number;
   /** Client clock at the peak sample. */
   ctPeak: number;
+  /**
+   * Wrist rotation rate at peak, paddle frame, deg/s.
+   *
+   * Table tennis only, and the reason it exists: a bat is swung by rotating the
+   * wrist, and the paddle face's velocity is `v_linear + omega x arm`. Without
+   * the rotation term a brush across the ball generates no spin at all, which is
+   * most of that sport. Every other sport ignores it — they read power off
+   * `speed` and direction off `dir`, and never ask how the wrist turned.
+   */
+  omega?: Vec3;
+  /**
+   * Hand velocity at peak, player frame — the same frame as `dir`.
+   *
+   * Carries power AND direction where `speed` and `dir` carry a magnitude and a
+   * unit vector. The same information in principle, but `dir` is normalised
+   * before it is sent, and table tennis reads the components rather than the
+   * direction: whether the hand went UP across the ball or DOWN through it is
+   * the difference between a loop and a chop. Absent means fall back to
+   * `dir * speed`, which still plays — flat.
+   */
+  vsw?: Vec3;
 }
 
 // ── controller → server ───────────────────────────────────────────────────────
@@ -39,7 +60,18 @@ export type C2S =
    * so it comes back with the next one. Optional: absent on the first ping.
    */
   | { t: 'PING'; c0: number; rtt?: number }
-  | { t: 'POSE'; seq: number; ct: number; q: QuantQuat }
+  /**
+   * `z` and `hold` are table tennis only.
+   *
+   * `z` is how far forward the hand is leaning, metres — the one axis
+   * orientation cannot supply, so it is integrated on the phone and sprung back
+   * to neutral rather than trusted as a position. `hold` is set for the length
+   * of a stroke: a swing is mostly rotation, and without freezing the position
+   * the bat slides across the table on its own, in opposite directions on a
+   * forehand and a backhand. The pose keeps updating either way, so the shot is
+   * unaffected.
+   */
+  | { t: 'POSE'; seq: number; ct: number; q: QuantQuat; z?: number; dx?: number; hold?: boolean }
   | {
       t: 'SWING';
       seq: number;
@@ -48,6 +80,8 @@ export type C2S =
       dir: Vec3;
       q: Quat;
       elev: number;
+      omega?: Vec3;
+      vsw?: Vec3;
     }
   | { t: 'BUTTON'; button: 'serve' | 'mute' }
   | { t: 'CALIBRATED'; yawOffset: number }
@@ -63,6 +97,21 @@ export type D2S =
   | { t: 'ROOM_JOIN'; room: string }
   | { t: 'SPORT_SELECT'; sport: SportId }
   | { t: 'ADD_BOT'; skill: number }
+  /**
+   * Teach this step out loud.
+   *
+   * A step NAME, never a line: the display owns the checklist, the server owns
+   * the commentator's words. See `commentary/tutor.ts`.
+   */
+  | { t: 'COACH'; step: string; nudge?: boolean }
+  /**
+   * Rename this screen's own seat.
+   *
+   * Separate from the controller's READY, which also carries a name, because
+   * a rename is not a readiness change: the name can be edited in the lobby
+   * before a phone has ever paired, and editing it must not start anything.
+   */
+  | { t: 'SET_NAME'; name: string }
   | { t: 'READY' }
   | { t: 'START' }
   | { t: 'REMATCH' }

@@ -1,0 +1,7 @@
+{
+  "files": ["apps/display/index.html", "apps/controller/index.html"],
+  "exclude": ["**/dist/**"],
+  "insertBefore": "</body>",
+  "commentSyntax": "html",
+  "cspChecked": true
+}

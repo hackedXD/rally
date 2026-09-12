@@ -8,3 +8,8 @@ logs/
 replays/
 .vite/
 coverage/
+
+# Impeccable working output: review captures and live-mode session journals are
+# regenerated on demand and are not project source.
+.impeccable/review/
+.impeccable/live/sessions/

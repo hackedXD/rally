@@ -19,14 +19,17 @@ export const COURTS: Record<SportId, CourtSpec> = {
     tableHeight: 0,
     standBehind: 0,
   },
+  // A real table, not a scaled-up one. The scene for this sport is built from
+  // its own geometry (see `pingpong.ts`), so these numbers are read by the
+  // lobby and by anything generic rather than by the renderer.
   tabletennis: {
-    length: 7.2,
-    width: 3.3,
-    netHeight: 0.34,
+    length: 2.74,
+    width: 1.525,
+    netHeight: 0.1525,
     nonVolleyZone: 0,
     surround: 2.4,
     tableHeight: 0.76,
-    standBehind: 0.55,
+    standBehind: 0.25,
   },
   badminton: {
     length: 13.4,
@@ -48,6 +51,17 @@ export const COURTS: Record<SportId, CourtSpec> = {
     standBehind: 0,
   },
 };
+
+/**
+ * The winning score, mirrored from the sport modules for the same reason the
+ * court dimensions are.
+ *
+ * Table tennis scores the real game. Everything else plays rally-to-7, which is
+ * the locked scoring decision for the shared engine.
+ */
+export function targetScore(sport: SportId): number {
+  return sport === 'tabletennis' ? 11 : 7;
+}
 
 /**
  * Reconcile against the server so a change to a sport module is visible here

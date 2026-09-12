@@ -30,6 +30,16 @@ export const GAME_EVENT_TYPES = [
   'match_start',
   'double_bounce',
   'fault',
+  /**
+   * Nothing is happening and it has been a while.
+   *
+   * Every other event here is something that occurred. This one is the absence
+   * of one, and it exists because silence is the failure mode a commentator
+   * cannot cover for: a ball that has gone out and not come back, a player who
+   * put their phone down, a serve nobody takes. The game sits there, and the
+   * commentary sits there with it, and the room assumes the thing is broken.
+   */
+  'stall',
 ] as const;
 
 export type GameEventType = (typeof GAME_EVENT_TYPES)[number];
@@ -72,6 +82,12 @@ export const CUE_CLASSES = [
   'comeback',
   'gamepoint',
   'match.end',
+  /** Play has stopped and nobody has noticed. See the `stall` event. */
+  'stall.waiting',
+  /** ...and it is now going on long enough to be funny. */
+  'stall.long',
+  /** The commentator teaching somebody the game. See `commentary/tutor.ts`. */
+  'tutorial',
 ] as const;
 
 export type CueClass = (typeof CUE_CLASSES)[number];

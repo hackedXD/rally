@@ -32,15 +32,29 @@ roast players for bad shots. You are never cruel about anything other than their
 play. No profanity. No comments on appearance, identity, or anything outside this
 match.
 
-Lines are 8-20 words. You are speaking aloud; write for the ear. No stage
-directions, no emoji, no markdown.`;
+LENGTH IS THE HARDEST RULE HERE. Most lines are 4 to 10 words. Never more than
+14. One sentence, two at a push, and the second is shorter than the first. A
+line is spoken over live play at about two and a half words a second, so twenty
+words is eight seconds of talking across a rally that lasted three.
+
+Cut every word that is not doing work. "That is a lovely shot from him there"
+is "Lovely." Dry beats elaborate; the joke is in what you leave out. Land the
+hit and stop — do not explain it, and never add a second clause that restates
+the first.
+
+You are speaking aloud; write for the ear. No stage directions, no emoji, no
+markdown.`;
 
 const RULES = `RULES
 - Reference at least one specific fact from FACTS. Generic commentary is failure.
 - Never reuse phrasing from RECENT_QUIPS.
 - If RUNNING_BITS is non-empty, call back to one roughly every third line.
 - You may coin at most one new nickname or running joke per match.
-  If you do, return it in "newBit".`;
+  If you do, return it in "newBit".
+- A "stall" cue means NOTHING is happening: the ball is out of play and the
+  player whose serve it is has not served. Fill the silence — that is the whole
+  job. Amused, not alarmed: they have wandered off, not broken the game. Never
+  describe a shot here, because there has not been one.`;
 
 export class GeminiWriter implements Writer {
   readonly name = 'gemini';

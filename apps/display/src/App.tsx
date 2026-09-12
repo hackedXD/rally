@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
+import * as THREE from 'three';
 import {
   TUNING,
   lane,
@@ -21,12 +22,18 @@ import { audio } from './audio/engine.js';
 import { RallyClient, defaultWsUrl, type RoomView } from './net/client.js';
 import { VirtualController, type VirtualState } from './net/virtual.js';
 import { Scene } from './scene/Scene.jsx';
-import { COURTS } from './scene/courts.js';
+import { PingPongScene } from './scene/PingPongScene.jsx';
+import type { PpViewName } from './scene/pingpong.js';
+import { COURTS, targetScore } from './scene/courts.js';
 import { feel } from './store/feel.js';
 import { useGame } from './store/useGame.js';
 import { EndCard } from './ui/EndCard.jsx';
 import { Hud } from './ui/Hud.jsx';
-import { Lobby } from './ui/Lobby.jsx';
+import { Muted } from './ui/icons.jsx';
+import { Room } from './ui/Room.jsx';
+import { SportRack } from './ui/SportRack.jsx';
+import { TimingRing } from './ui/TimingRing.jsx';
+import { Tutorial } from './ui/Tutorial.jsx';
 import { TunePanel } from './ui/TunePanel.jsx';
 import { VirtualPanel } from './ui/VirtualPanel.jsx';
 
@@ -35,6 +42,40 @@ export function App() {
   const [virtualState, setVirtualState] = useState<VirtualState | null>(null);
   const virtual = useRef<VirtualController | null>(null);
   const canvasWrap = useRef<HTMLDivElement>(null);
+  /**
+   * Table tennis framing, remembered across reloads.
+   *
+   * First person is the default and the one the game is designed around; the
+   * wide view is for a screen somebody is watching rather than playing on. Only
+   * this sport has the choice — the others are already framed from a broadcast
+   * position, because at 13 m that is the only framing that works.
+   */
+  const [ppView, setPpView] = useState<PpViewName>(() => {
+    try {
+      return localStorage.getItem('rally.ppview') === 'wide' ? 'wide' : 'first';
+    } catch {
+      return 'first';
+    }
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'v' && e.key !== 'V') return;
+      // Never while typing a name into the lobby.
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+      setPpView((v) => {
+        const next = v === 'first' ? 'wide' : 'first';
+        try {
+          localStorage.setItem('rally.ppview', next);
+        } catch {
+          /* private mode */
+        }
+        return next;
+      });
+    };
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, []);
 
   /**
    * One client, constructed but NOT connected here.
@@ -59,13 +100,21 @@ export function App() {
         g.setNames(names);
         g.setSport(sport);
         g.setScreen('playing');
-        g.showBanner(`${names[0]} vs ${names[1]}`, 'First to 7, win by 2', 2400);
+        g.showBanner(
+          `${names[0]} vs ${names[1]}`,
+          `First to ${targetScore(sport)}, win by 2`,
+          2400,
+        );
         feel.reset();
+        audio.setSport(sport);
         audio.startCrowd();
       },
       onEvent: (e) => handleEvent(e),
       onMatchEnd: (winner, final, summary) => {
         useGame.getState().setResult(winner, final, summary);
+        // The coach stops when the match does, or its card sits over the end
+        // card telling somebody to win a point that is no longer available.
+        useGame.getState().setTutorial(false);
         feel.cancelReplay();
       },
       onLobbyStatus: (text, progress, done) => {
@@ -231,13 +280,13 @@ export function App() {
       room.code,
       room.seat,
       room.pairToken,
-      localPlayerName(),
+      client.name,
     );
     vc.onChange = setVirtualState;
     vc.connect();
     virtual.current = vc;
     useGame.getState().toggleVirtual();
-  }, [unlockAudio]);
+  }, [client, unlockAudio]);
 
   // ── Input ───────────────────────────────────────────────────────────────────
 
@@ -297,6 +346,40 @@ export function App() {
 
   useEffect(() => () => virtual.current?.disconnect(), []);
 
+  /**
+   * Start the coached match.
+   *
+   * Everything here is an ordinary lobby action — pair something to your seat,
+   * put a weak bot opposite, start. The tutorial itself is drawn on top and
+   * changes nothing about the match, which is what stops it from teaching a game
+   * nobody afterwards gets to play.
+   */
+  /*
+   * Stable, and it has to be. The overlay runs its checklist on an interval
+   * keyed to its props, and App re-renders on every event, ping and subtitle —
+   * an inline arrow here hands it a new identity several times a second, which
+   * tears the interval down before it can ever fire. The tutorial then shows
+   * step one forever while the player does everything right.
+   */
+  const endTutorial = useCallback(() => useGame.getState().setTutorial(false), []);
+
+  const startTutorial = useCallback(() => {
+    void unlockAudio();
+    const g = useGame.getState();
+    // A phone already paired stays the controller; without one the mouse takes
+    // the seat, so pressing Tutorial always produces something playable rather
+    // than an instruction to go and find a phone first.
+    if (!g.room?.seats.some((s) => lane(s.seat) === lane(g.room?.seat ?? 0) && s.paired)) {
+      playHere();
+    }
+    // 0.25, not the usual 0.55. A tutorial you lose every point of teaches
+    // nothing but that the game is hard.
+    client.addBot(0.25);
+    g.setTutorial(true);
+    client.start();
+  }, [client, unlockAudio, playHere]);
+
+
   // Moving to a friend's room leaves the mouse controller paired to the old one,
   // holding a seat in a room nobody is looking at any more.
   const roomCode = store.room?.code;
@@ -311,22 +394,68 @@ export function App() {
   const ownSeat: Seat = store.room?.seat ?? 0;
   const court = COURTS[store.sport as SportId] ?? COURTS.pickleball;
   const playing = store.screen === 'playing' || store.screen === 'over';
+  // Table tennis is drawn by its own renderer — see PingPongScene for why.
+  const pingpong = store.sport === 'tabletennis';
 
   return (
     <div className={`stage${virtualState && playing ? ' has-vc' : ''}`}>
       <div className="canvas-wrap" ref={canvasWrap}>
+        {/*
+          * Tone mapping off, deliberately. The filmic curve three.js defaults to
+          * is built for photographic range, and it desaturates flat colour on the
+          * way through — a court painted #00c65a arrived on screen as a pastel.
+          * The whole world here is flat acrylic paint, so the pixels should be
+          * the paint.
+          */}
         <Canvas
           shadows
           dpr={[1, 2]}
-          gl={{ antialias: true, powerPreference: 'high-performance' }}
+          gl={{
+            antialias: true,
+            powerPreference: 'high-performance',
+            toneMapping: THREE.NoToneMapping,
+          }}
           camera={{ fov: 35, near: 0.1, far: 200 }}
         >
-          <Scene client={client} court={court} sport={store.sport} ownSeat={ownSeat} />
+          {pingpong ? (
+            <PingPongScene client={client} ownSeat={ownSeat} view={ppView} />
+          ) : (
+            <Scene
+              client={client}
+              court={court}
+              sport={store.sport}
+              ownSeat={ownSeat}
+              framing={playing ? 'match' : 'lobby'}
+            />
+          )}
         </Canvas>
       </div>
 
       {playing && <Hud client={client} ownSeat={ownSeat} />}
-      {!playing && <Lobby client={client} onStart={startMatch} onPlayHere={playHere} />}
+      {playing && store.tutorial && (
+        <Tutorial client={client} ownSeat={ownSeat} sport={store.sport} onDone={endTutorial} />
+      )}
+      {playing && pingpong && <TimingRing client={client} ownSeat={ownSeat} />}
+      {/*
+        * Two lobby screens, never both. The rack asks what to play and repaints
+        * the court behind itself as you move along it; the room is that court
+        * seen from above, where phones pair into the side they will play in.
+        */}
+      {!playing &&
+        (store.lobbyStep === 'rack' ? (
+          <SportRack
+            client={client}
+            onTakeCourt={() => useGame.getState().setLobbyStep('room')}
+          />
+        ) : (
+          <Room
+            client={client}
+            onStart={startMatch}
+            onPlayHere={playHere}
+            onTutorial={startTutorial}
+            onBackToRack={() => useGame.getState().setLobbyStep('rack')}
+          />
+        ))}
       {store.screen === 'over' && (
         <EndCard
           ownSeat={ownSeat}
@@ -346,6 +475,7 @@ export function App() {
         // Nobody has touched this screen, so the browser will not let a sound out
         // of it. Say so, rather than being mysteriously silent.
         <button className="sound-prompt" onClick={() => void unlockAudio()}>
+          <Muted />
           Click anywhere for sound
         </button>
       )}
@@ -370,21 +500,6 @@ function rememberRoom(code: string): void {
   if (url.searchParams.get('room') === code) return;
   url.searchParams.set('room', code);
   history.replaceState(null, '', url);
-}
-
-/**
- * A stable, speakable name for whoever is playing from this machine. Remembered,
- * so a rematch does not rename them mid-session.
- */
-function localPlayerName(): string {
-  const stored = localStorage.getItem('rally.name');
-  if (stored) return stored;
-  const adjectives = ['Swift', 'Lucky', 'Bold', 'Calm', 'Sly', 'Keen', 'Wild'];
-  const nouns = ['Otter', 'Falcon', 'Comet', 'Pike', 'Ember', 'Moth', 'Fox'];
-  const pick = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)];
-  const name = `${pick(adjectives)} ${pick(nouns)}`;
-  localStorage.setItem('rally.name', name);
-  return name;
 }
 
 /** Where a hit happened, for the impact ring and the shake. */

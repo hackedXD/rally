@@ -11,7 +11,13 @@
 
 import { readFileSync } from 'node:fs';
 import { TUNING, type GameEvent, type Seat, type Snapshot, type SwingInput } from '@rally/protocol';
-import { Match, emptyTickInput, getSport } from '@rally/sim';
+import {
+  Match,
+  PingPongMatch,
+  emptyTickInput,
+  getSport,
+  type MatchEngine,
+} from '@rally/sim';
 import type { ReplayLine } from '../../apps/server/src/replay.js';
 
 const args = process.argv.slice(2);
@@ -62,7 +68,13 @@ if (!verify) {
 // and every replay-based bug report is worthless.
 
 const sport = getSport(start.sport);
-const match = new Match({ sport, seed: start.seed, names: start.names });
+// The engine has to match the one that recorded it — see `MatchEngine`. Replaying
+// a table tennis match through the shared simulation would not fail loudly, it
+// would fail as a mismatch at event zero and look like broken determinism.
+const match: MatchEngine =
+  sport.id === 'tabletennis'
+    ? new PingPongMatch({ sport, seed: start.seed, names: start.names })
+    : new Match({ sport, seed: start.seed, names: start.names });
 const DT = 1 / TUNING.net.tickHz;
 let t = 0;
 match.start(t);

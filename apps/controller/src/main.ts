@@ -14,7 +14,15 @@
  */
 
 import { Calibrator } from '@rally/motion';
-import { TUNING, sanitizeName, type CueKind, type Seat } from '@rally/protocol';
+import {
+  NAME_MAX,
+  TUNING,
+  filterName,
+  loadName,
+  saveName,
+  type CueKind,
+  type Seat,
+} from '@rally/protocol';
 import { haptics } from './haptics.js';
 import { ControllerNet, type LiteState } from './net.js';
 import { readPairing, wsUrl } from './url.js';
@@ -30,6 +38,20 @@ import './style.css';
 
 const app = document.getElementById('app')!;
 const pairing = readPairing();
+
+/**
+ * The two icons this screen needs, drawn rather than borrowed.
+ *
+ * One stroke weight, square caps, sitting on the same grid as the tape — an
+ * emoji here renders in somebody else's typeface at somebody else's weight and
+ * reads as a sticker left on the screen.
+ */
+const ICON = (paths: string): string =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+        stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">${paths}</svg>`;
+const SPEAKER = '<path d="M4 9h4l5-4v14l-5-4H4z"/>';
+const ICON_MUTED = ICON(`${SPEAKER}<path d="M17 9.5l4 5M21 9.5l-4 5"/>`);
+const ICON_SOUND = ICON(`${SPEAKER}<path d="M17 8.5a5 5 0 0 1 0 7"/>`);
 
 /**
  * Which screen is up.
@@ -48,6 +70,14 @@ let sensors: SensorStream | null = null;
 let lite: LiteState | null = null;
 let seat: Seat = pairing?.seat ?? 0;
 let opponent: string | null = null;
+/**
+ * Which sport this room is playing, as of the last PAIRED.
+ *
+ * The phone only cares for one reason: table tennis runs a different swing
+ * detector. Everything else about the controller is sport-agnostic and stays
+ * that way.
+ */
+let sport = 'pickleball';
 let connState: 'connecting' | 'open' | 'closed' = 'connecting';
 let playerName = loadName();
 let muted = false;
@@ -111,6 +141,7 @@ function startCalibration(): void {
   screen = 'calibrating';
   // During calibration nothing is sent anywhere; the fusion just needs samples.
   sensors = startSensors({ onPose: noop, onSwing: noop });
+  sensors.setSport(sport);
   const calibrator = new Calibrator();
   let started = false;
   let signChecked = false;
@@ -124,9 +155,9 @@ function startCalibration(): void {
   const ring = el('div', 'ring');
   ring.innerHTML = `
     <svg width="190" height="190" viewBox="0 0 190 190">
-      <circle cx="95" cy="95" r="84" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="10"/>
-      <circle id="arc" cx="95" cy="95" r="84" fill="none" stroke="#4ade80" stroke-width="10"
-              stroke-linecap="round" stroke-dasharray="528" stroke-dashoffset="528"/>
+      <circle cx="95" cy="95" r="84" fill="none" stroke="rgba(255,255,255,0.26)" stroke-width="10"/>
+      <circle id="arc" cx="95" cy="95" r="84" fill="none" stroke="#e3ff33" stroke-width="10"
+              stroke-linecap="butt" stroke-dasharray="528" stroke-dashoffset="528"/>
     </svg>
     <div class="pct">0%</div>`;
   wrap.append(ring);
@@ -205,9 +236,13 @@ function connect(): void {
       }
       renderPlay();
     },
-    onPaired: (s, opp) => {
+    onPaired: (s, opp, sportId) => {
       seat = s;
       opponent = opp;
+      // Which swing detector runs. Table tennis onsets on rotation and reports
+      // the wrist rate; everything else onsets on acceleration.
+      sport = sportId;
+      sensors?.setSport(sportId);
       renderPlay();
     },
     onCue: (kind) => {
@@ -248,8 +283,8 @@ function connect(): void {
   // attachment path, so the pose and swing handlers cannot drift apart.
   sensors?.stop();
   sensors = startSensors({
-    onPose: (q, t) => {
-      if (!paused) net?.pose(q, t);
+    onPose: (q, t, omegaDeg, reach, sway, hold) => {
+      if (!paused) net?.pose(q, t, omegaDeg, reach, sway, hold);
     },
     onSwing: (swing) => {
       if (paused) return;
@@ -303,9 +338,14 @@ function draw(): void {
   app.innerHTML = `
     <div class="bar">
       <span class="dot ${connState === 'open' ? '' : connState === 'connecting' ? 'warn' : 'bad'}"></span>
-      <span class="name">${escapeHtml(playerName)}</span>
-      <button class="icon-btn ${muted ? 'on' : ''}" id="mute" aria-label="Mute commentary">
-        ${muted ? '🔇' : '🔊'}
+      <button class="name" id="rename" aria-label="Change your name">
+        ${escapeHtml(playerName)}
+      </button>
+      <span class="spacer"></span>
+      <button class="icon-btn ${muted ? 'on' : ''}" id="mute"
+              aria-label="${muted ? 'Unmute commentary' : 'Mute commentary'}"
+              aria-pressed="${muted}">
+        ${muted ? ICON_MUTED : ICON_SOUND}
       </button>
     </div>
 
@@ -316,7 +356,7 @@ function draw(): void {
       </div>
       <div class="sep"></div>
       <div class="s">
-        <div class="l">${escapeHtml(opponent ?? lite?.opponent ?? 'Them')}</div>
+        <div class="l">${escapeHtml(lite?.opponent ?? opponent ?? 'Them')}</div>
         <div class="v">${theirs}</div>
       </div>
     </div>
@@ -337,9 +377,12 @@ function draw(): void {
       <span>${swingCount} swings</span>
       <span>${lastSwingSpeed ? lastSwingSpeed.toFixed(1) + ' m/s' : '—'}</span>
       <span>${net ? Math.round(net.rtt) : 0} ms</span>
+      <span>${net && net.leadMs >= 1 ? '+' + Math.round(net.leadMs) + ' ms lead' : '—'}</span>
+      <span>${sensors?.sampleHz() ? sensors.sampleHz() + ' Hz' : '—'}</span>
     </div>
   `;
 
+  app.querySelector('#rename')?.addEventListener('click', () => renderNameEditor());
   app.querySelector('#serve')?.addEventListener('click', () => {
     net?.serve();
     haptics.play('serve');
@@ -403,6 +446,65 @@ function renderPausedOverlay(): void {
     renderPlay();
   });
   app.append(overlay);
+}
+
+/**
+ * Change your name, on the phone.
+ *
+ * Appended to the BODY rather than to `app`, and that is the whole reason this
+ * is an overlay instead of an input in the header. The play screen re-renders by
+ * replacing `app.innerHTML` wholesale on every cue, score and snapshot — a text
+ * field living inside it would be destroyed and rebuilt under the player's
+ * thumb, losing focus and caret mid-word, several times a second.
+ *
+ * Renaming re-sends READY, which is the message that already carries a name.
+ * The seat is ready by the time this button is reachable, so saying so again
+ * changes nothing else.
+ */
+function renderNameEditor(): void {
+  if (document.getElementById('name-overlay')) return;
+  const overlay = el('div', 'overlay');
+  overlay.id = 'name-overlay';
+  overlay.innerHTML = `
+    <div>
+      <h2>Your name</h2>
+      <p>The commentator says this out loud.</p>
+      <input id="name-input" maxlength="${NAME_MAX}" autocomplete="off"
+             spellcheck="false" enterkeyhint="done" aria-label="Your name" />
+      <button id="name-save">Save</button>
+    </div>`;
+  document.body.append(overlay);
+
+  const input = overlay.querySelector('#name-input') as HTMLInputElement;
+  input.value = playerName;
+  // Clean as they type, so the cap and the allowed characters are visible facts
+  // about the box rather than a rewrite that happens after Save. Written back
+  // only when it actually changed: assigning `value` puts the caret at the end,
+  // and a typist who never types anything odd should never feel that.
+  input.addEventListener('input', () => {
+    const clean = filterName(input.value);
+    if (clean !== input.value) input.value = clean;
+  });
+  input.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') commit();
+  });
+  overlay.querySelector('#name-save')?.addEventListener('click', () => commit());
+  // Tapping the backdrop is how every other sheet on a phone is dismissed.
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  input.focus();
+  input.select();
+
+  function commit(): void {
+    // A field emptied and left empty is not a request to be called "".
+    if (input.value.trim()) {
+      playerName = saveName(input.value);
+      net?.ready(playerName);
+    }
+    overlay.remove();
+    renderPlay();
+  }
 }
 
 function renderFatal(title: string, message: string): void {
@@ -472,32 +574,6 @@ function cueToClick(kind: CueKind): Parameters<typeof haptics.play>[0] {
     default:
       return 'serve';
   }
-}
-
-/**
- * A remembered, speakable name for this player.
- *
- * The word lists live INSIDE the function on purpose. This is called while the
- * module is still evaluating, and module-level `const`s declared further down the
- * file are in the temporal dead zone at that point — reaching one throws, the
- * script dies, and the page renders as a blank screen. It only bites when storage
- * is empty, which is never true in local testing and always true on a phone
- * opening the page for the first time.
- */
-function loadName(): string {
-  const stored = localStorage.getItem('rally.name');
-  if (stored) return sanitizeName(stored);
-  const adjectives = ['Swift', 'Lucky', 'Bold', 'Calm', 'Sly', 'Keen', 'Wild'];
-  const nouns = ['Otter', 'Falcon', 'Comet', 'Pike', 'Ember', 'Moth', 'Fox'];
-  const pick = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
-  const name = sanitizeName(`${pick(adjectives)} ${pick(nouns)}`);
-  try {
-    localStorage.setItem('rally.name', name);
-  } catch {
-    // Private browsing can refuse to store. A name that is not remembered is
-    // still a name; it must not take the page down with it.
-  }
-  return name;
 }
 
 function noop(): void {

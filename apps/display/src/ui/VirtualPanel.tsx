@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { VirtualState } from '../net/virtual.js';
 
 interface Props {
@@ -9,10 +10,10 @@ interface Props {
 export function VirtualPanel({ state, onServe }: Props) {
   return (
     <div className="vc">
-      <div className="title">Mouse controller</div>
+      <div className="t">Mouse controller</div>
       <div>Move to aim · hold to wind up · release to swing</div>
       <div className="meter">
-        <i style={{ width: `${Math.round(state.charge * 100)}%` }} />
+        <i style={{ '--p': state.charge } as CSSProperties} />
       </div>
       <div className="row">
         <span>{state.swings} swings</span>

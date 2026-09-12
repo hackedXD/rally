@@ -23,15 +23,19 @@
     "serve": "npm run build && RALLY_SERVE_STATIC=1 npm run start",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p apps/display/tsconfig.json --noEmit && tsc -p apps/controller/tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:fast": "vitest run --exclude \"**/integration.test.ts\"",
+    "test:e2e": "vitest run tests/integration.test.ts",
     "test:watch": "vitest",
     "headless": "tsx --tsconfig tsconfig.node.json tools/mocks/headless-sim.ts",
     "mock:controller": "tsx --tsconfig tsconfig.node.json tools/mocks/mock-controller.ts",
     "mock:events": "tsx --tsconfig tsconfig.node.json tools/mocks/mock-events.ts",
     "echo": "tsx --tsconfig tsconfig.node.json tools/mocks/echo-server.ts",
     "replay": "tsx --tsconfig tsconfig.node.json tools/replay/replay.ts",
+    "bench:predict": "tsx --tsconfig tsconfig.node.json tools/predict/lead.ts",
     "tunnel": "node scripts/tunnel.mjs",
     "mock:snapshots": "tsx --tsconfig tsconfig.node.json tools/mocks/mock-snapshots.ts",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test",
+    "check:fast": "npm run typecheck && npm run test:fast"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -43,5 +47,8 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "impeccable": "^4.1.0"
   }
 }

@@ -39,6 +39,7 @@ import { CueStore } from './cuestore.js';
 import { STATIC_LINES } from './fallback.js';
 import { filterLine } from './filter.js';
 import { Narrative } from './narrative.js';
+import { coachLine, isTutorStep } from './tutor.js';
 import {
   selectProviders,
   type LineContext,
@@ -69,6 +70,12 @@ const BANK_CLASSES: CueClass[] = [
   'comeback',
   'gamepoint',
   'match.end',
+  // Nothing is happening, and the moment it starts not happening is exactly when
+  // a cached line is worth most: there is no rally to speak over and nothing to
+  // wait for, so a line that needs a round trip arrives into silence that has
+  // already been noticed.
+  'stall.waiting',
+  'stall.long',
 ];
 
 export interface DirectorHost {
@@ -118,6 +125,10 @@ export class CommentaryDirector {
   private hitsSinceSpec = 0;
   private specInFlight = 0;
   private liveInFlight = false;
+  /** Coaching lines, spoken strictly in the order they were asked for. */
+  private coachChain: Promise<void> = Promise.resolve();
+  /** The most recent step asked for, so an overtaken line can be dropped. */
+  private coachLatest: string | null = null;
   private muted = false;
   private disposed = false;
   private prepared = false;
@@ -394,6 +405,102 @@ export class CommentaryDirector {
   private msUntilClear(minMs: number): number {
     const remaining = this.speakingUntil - this.host.now();
     return Math.max(minMs, Math.min(remaining, TUNING.commentary.holdPlayMaxMs));
+  }
+
+  // ── Coaching ────────────────────────────────────────────────────────────────
+
+  /**
+   * Teach one tutorial step, out loud.
+   *
+   * Sits outside the three layers on purpose. Those all answer the question
+   * "is this moment worth a line?" and are built to stay quiet when it is not —
+   * salience floors, minimum gaps, a cold bank that runs dry. A step of a
+   * tutorial is not a moment worth describing; it is the one thing the player
+   * needs and cannot get anywhere else, so it is written on demand, said at
+   * priority 3, and never dropped for being unremarkable.
+   *
+   * What it does keep is the one rule every layer shares: never start on top of
+   * a line already in progress. A coach who talks over the call of the point
+   * they just made you win is worse than no coach.
+   */
+  coach(step: string, sport: SportId, seat: Seat, nudge = false): Promise<void> {
+    /*
+     * Strictly in order, which a bare `void this.runCoach(...)` is not.
+     *
+     * Each call waits for the airwaves and then SYNTHESISES, and synthesis is a
+     * network round trip of unpredictable length. Two coaching lines started a
+     * moment apart therefore race: whichever voice call happens to come back
+     * first is spoken first, and the tutorial tells you to serve before it has
+     * told you your hand moves the paddle. Chaining them costs nothing — there
+     * are only ever a handful — and makes the order the one they were asked in.
+     */
+    /*
+     * Recorded synchronously, so a line whose turn comes round after the player
+     * has already moved on can tell that it has been overtaken (see `runCoach`).
+     *
+     * The welcome is not a step and must not move this. It is exempt from the
+     * overtaking check in both directions: a late or repeated one cannot strand
+     * the instruction the player is actually waiting on.
+     */
+    if (step !== 'intro') this.coachLatest = step;
+    this.coachChain = this.coachChain
+      .then(() => this.runCoach(step, sport, seat, nudge))
+      // The chain has to survive a failure. A rejected link makes every `.then`
+      // after it a no-op, so one voice call timing out would silently end the
+      // tutorial's voice for the rest of the match.
+      .catch((err) => logger.debug('coach line dropped', err));
+    return this.coachChain;
+  }
+
+  private async runCoach(step: string, sport: SportId, seat: Seat, nudge: boolean): Promise<void> {
+    // The wire carries a step name, so this is where an unknown one stops.
+    if (this.disposed || this.muted || !isTutorStep(step)) return;
+
+    const names = this.host.names();
+    const raw = coachLine(step, sport, nudge);
+    const text = expandForSeats(raw, names).find((v) => v.seat === undefined || v.seat === seat)
+      ?.text ?? raw;
+    const r = filterLine(text);
+    if (!r.ok) return;
+
+    // Wait out whatever is being said, then check again: the wait is real time,
+    // and the tutorial may have moved on or the player muted us during it.
+    await sleep(this.msUntilClear(0));
+    if (this.disposed || this.muted) return;
+
+    /*
+     * Has the player already moved past this?
+     *
+     * The card advances the instant a step is satisfied; a spoken line takes two
+     * or three seconds to say. Somebody who aims, serves and returns inside one
+     * swing leaves three instructions queued behind them, and hearing "now
+     * swing to serve" while already in a rally teaches nothing and confuses the
+     * step they ARE on. So a line whose step has been overtaken is dropped.
+     *
+     * The welcome is exempt, and has to be: it is asked for in the same breath
+     * as the first step, so a rule without this clause would silently delete
+     * the one line every player hears.
+     */
+    if (step !== 'intro' && this.coachLatest !== step) {
+      logger.debug('coach line overtaken, dropping', step);
+      return;
+    }
+
+    const synth = await this.providers.voice.synth(r.text).catch(() => null);
+    if (this.disposed) return;
+    const cue = this.store.add(
+      'tutorial',
+      r.text,
+      synth?.audio ?? new Uint8Array(0),
+      synth?.durationMs ?? estimateDurationMs(r.text),
+      'cache',
+      synth?.speak ?? true,
+      { seat },
+    );
+    this.host.broadcast({ t: 'CUE_PRELOAD', cues: [cue] });
+    // Priority 3 so it queues behind the point rather than being dropped for
+    // arriving while the point was still being called.
+    this.play(cue.id, 3, r.text);
   }
 
   // ── Layer 1: speculative ────────────────────────────────────────────────────

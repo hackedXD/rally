@@ -34,10 +34,13 @@ import {
 import {
   Bot,
   Match,
+  PingPongMatch,
   SPORT_ORDER,
   getSport,
+  pingpong,
   sportMeta,
   type BotView,
+  type MatchEngine,
   type SportModule,
 } from '@rally/sim';
 import { CommentaryDirector } from './commentary/director.js';
@@ -56,6 +59,25 @@ const logger = log.child('room');
  * simulation has to know which end of the court it is on.
  */
 const SEAT1_FLIP: Quat = qFromAxisAngle([0, 1, 0], Math.PI);
+
+/** True for sports simulated by the table tennis engine rather than the shared one. */
+function usesPingPong(sport: SportModule): boolean {
+  return sport.id === 'tabletennis';
+}
+
+/**
+ * The simulation for a sport.
+ *
+ * Two engines, picked here and nowhere else. Everything downstream drives a
+ * `MatchEngine` and never asks which one it got — see the interface for why the
+ * seam is at this level rather than inside a sport module.
+ */
+function makeEngine(sport: SportModule, seed: number): MatchEngine {
+  const names: [string, string] = ['Player 1', 'Player 2'];
+  return usesPingPong(sport)
+    ? new PingPongMatch({ sport, seed, names })
+    : new Match({ sport, seed, names });
+}
 
 /**
  * How long a pair token stays scannable.
@@ -89,7 +111,23 @@ interface SeatSlot {
   /** When the controller dropped, for the disconnect grace window. */
   droppedAt: Millis | null;
   pose: Quat;
+  /**
+   * The pose exactly as the phone sent it, in the canonical player frame.
+   *
+   * `pose` above is already mapped onto this seat's end of the court, which is
+   * what the shared simulation wants. The table tennis engine does that mapping
+   * itself — `paddleFrame` picks the bat face that looks down the table, which
+   * it can only do from an unmapped pose — so it is handed this one instead.
+   */
+  rawPose: Quat;
   poseCt: number;
+  /**
+   * Table tennis: forward lean and cross-body travel, metres, and whether a
+   * stroke is in progress.
+   */
+  reach: number;
+  sway: number;
+  holdPose: boolean;
   yawOffset: number;
   paused: boolean;
 }
@@ -99,7 +137,7 @@ export type RoomPhase = 'lobby' | 'preparing' | 'live' | 'finished';
 export class Room {
   readonly code: string;
   sport: SportModule;
-  match: Match;
+  match: MatchEngine;
   readonly bus = new EventBus();
   readonly director: CommentaryDirector;
   phase: RoomPhase = 'lobby';
@@ -126,11 +164,7 @@ export class Room {
     this.createdAt = now();
     this.lastActivity = now();
     this.slots = [0, 1].map((i) => this.blankSlot(i as Seat, rand));
-    this.match = new Match({
-      sport: this.sport,
-      seed,
-      names: ['Player 1', 'Player 2'],
-    });
+    this.match = makeEngine(this.sport, seed);
     this.director = new CommentaryDirector(
       {
         sport: this.sport,
@@ -162,7 +196,11 @@ export class Room {
       tokenExpires: this.now() + PAIR_TOKEN_TTL_MS,
       droppedAt: null,
       pose: QUAT_IDENTITY,
+      rawPose: QUAT_IDENTITY,
       poseCt: 0,
+      reach: 0,
+      sway: 0,
+      holdPose: false,
       yawOffset: 0,
       paused: false,
     };
@@ -265,10 +303,35 @@ export class Room {
   // ── Controller input ────────────────────────────────────────────────────────
 
   setReady(seat: Seat, name: string): void {
+    this.setName(seat, name);
+    this.slots[lane(seat)].ready = true;
+    this.touch();
+  }
+
+  /**
+   * Rename a seat, without touching whether it is ready.
+   *
+   * Separate from READY because the screen may own the name before any phone
+   * exists — somebody types it in the lobby and then scans the code — and
+   * because marking a seat ready is what starts matches.
+   *
+   * The opponent's phone is told directly. It learned the name it is showing
+   * from its PAIRED, which is sent once; without this it goes on displaying
+   * whoever the other player used to be until the first point is scored.
+   */
+  setName(seat: Seat, name: string): void {
     const slot = this.slots[lane(seat)];
-    slot.name = this.uniqueName(name, seat);
-    slot.ready = true;
+    const next = this.uniqueName(name, seat);
+    if (next === slot.name) return;
+    slot.name = next;
     this.match.setNames(this.names());
+    this.slots[lane(otherSeat(seat))].controller?.send({
+      t: 'PAIRED',
+      seat: otherSeat(seat),
+      room: this.code,
+      sport: this.sport.id,
+      opponent: next,
+    });
     this.touch();
   }
 
@@ -290,6 +353,17 @@ export class Room {
     return suffixed.toLowerCase() === taken.toLowerCase() ? fallback : suffixed;
   }
 
+  /**
+   * Have the commentator teach one tutorial step.
+   *
+   * The room supplies the two things the display cannot be trusted for: which
+   * sport is actually being played, and which seat is asking. The words are the
+   * commentator's own — see `commentary/tutor.ts`.
+   */
+  coach(seat: Seat, step: string, nudge: boolean): void {
+    void this.director.coach(step, this.sport.id, seat, nudge);
+  }
+
   setCalibrated(seat: Seat, yawOffset: number): void {
     this.slots[lane(seat)].yawOffset = yawOffset;
   }
@@ -299,28 +373,52 @@ export class Room {
   }
 
   /** Pose, forwarded straight to this seat's own display (transport path A). */
-  onPose(seat: Seat, quantised: readonly number[], ct: number): void {
+  onPose(
+    seat: Seat,
+    quantised: readonly number[],
+    ct: number,
+    z?: number,
+    dx?: number,
+    hold?: boolean,
+  ): void {
     const slot = this.slots[lane(seat)];
-    const q = poseToWorld(seat, dequantQuat(quantised));
-    slot.pose = q;
+    const raw = dequantQuat(quantised);
+    slot.rawPose = raw;
+    slot.pose = poseToWorld(seat, raw);
     slot.poseCt = ct;
+    if (Number.isFinite(z)) slot.reach = z as number;
+    if (Number.isFinite(dx)) slot.sway = dx as number;
+    slot.holdPose = hold === true;
     // Out of band and immediate: your own paddle should feel instant. Everything
     // else can be interpolated.
+    //
+    // Always a WORLD-frame paddle orientation, whichever engine is running — the
+    // display draws a bat from it and must not have to know how the seat mapping
+    // works. The two engines just arrive at it differently.
+    const q = usesPingPong(this.sport)
+      ? pingpong.paddleFrame(lane(seat), pingpong.toPpPose(raw)).worldQ
+      : slot.pose;
     slot.display?.send({ t: 'LOCALPOSE', seat, q, ct });
   }
 
   onSwing(seat: Seat, swing: SwingInput, conn: Conn): void {
     if (this.phase !== 'live') return;
-    const world: SwingInput = {
-      ...swing,
-      dir: dirToWorld(seat, swing.dir),
-      q: poseToWorld(seat, swing.q),
-    };
+    // The table tennis engine wants the swing exactly as the phone reported it:
+    // `vsw` is in the player's own motion frame and `paddleFrame` does the seat
+    // mapping itself, so pre-rotating either would apply the flip twice.
+    const world: SwingInput = usesPingPong(this.sport)
+      ? swing
+      : { ...swing, dir: dirToWorld(seat, swing.dir), q: poseToWorld(seat, swing.q) };
     // Convert the client's clock into server time; the simulation rewinds from
     // there, bounded by MAX_REWIND.
     const tServer = conn.clockSynced ? conn.toServer(swing.ctPeak) : this.now();
     this.match.applySwing(seat, world, tServer);
-    this.recorder?.swing(seat, world, tServer);
+    // What a replay has to feed back in is the moment the swing was APPLIED, and
+    // for the shared engine those are the same thing — it rewinds to `tServer`,
+    // so replaying at `tServer` reproduces it exactly. The table tennis engine
+    // does not rewind (see its `applySwing`), so its swings land at the tick they
+    // arrived on, and that is the timestamp its replays need.
+    this.recorder?.swing(seat, world, usesPingPong(this.sport) ? this.now() : tServer);
     this.touch();
   }
 
@@ -340,9 +438,26 @@ export class Room {
     if (this.phase === 'live') return false;
     const sport = getSport(sportId);
     if (!sport.playable) return false;
+    // An engine swap, not just a reset: the two simulations share no state, so
+    // switching to or from table tennis has to replace the object rather than
+    // hand a pingpong court to a match that auto-positions players onto it.
+    const swap = usesPingPong(sport) !== usesPingPong(this.sport);
     this.sport = sport;
-    this.match.reset(sport);
+    if (swap) this.match = makeEngine(sport, this.seed);
+    else this.match.reset(sport);
     this.match.setNames(this.names());
+    // Phones paired before the sport was chosen are holding the wrong swing
+    // detector: table tennis onsets a swing on rotation and the others on
+    // acceleration. PAIRED is what tells them, so it is sent again.
+    for (const slot of this.slots) {
+      slot.controller?.send({
+        t: 'PAIRED',
+        seat: slot.seat,
+        room: this.code,
+        sport: sport.id,
+        opponent: this.names()[lane(otherSeat(slot.seat))],
+      });
+    }
     this.touch();
     return true;
   }
@@ -382,7 +497,7 @@ export class Room {
     slot.bot = new Bot(slot.seat, makeBotRng(this.seed + slot.seat), skill);
     slot.name = slot.name ?? botName(slot.seat);
     slot.ready = true;
-    this.match.setBot(slot.seat, true);
+    this.match.setBot(slot.seat, true, skill);
     this.match.setNames(this.names());
     this.touch();
   }
@@ -452,7 +567,9 @@ export class Room {
     this.match.reset(this.sport);
     this.match.setNames(this.names());
     this.match.start(this.now());
-    for (const slot of this.slots) this.match.setBot(slot.seat, slot.bot !== null);
+    for (const slot of this.slots) {
+      this.match.setBot(slot.seat, slot.bot !== null, slot.bot?.skill);
+    }
 
     this.toDisplays({
       t: 'MATCH_START',
@@ -510,7 +627,7 @@ export class Room {
 
     // Bots read the same telegraph the display renders and emit the same swings a
     // phone does, so they exercise the exact strike path a human does.
-    if (!paused) {
+    if (!paused && !this.match.drivesOwnBots) {
       const telegraph = this.match.getTelegraph();
       const prediction = this.match.getPrediction();
       for (const slot of this.slots) {
@@ -537,9 +654,15 @@ export class Room {
       }
     }
 
+    const pp = usesPingPong(this.sport);
     const snapshot = this.match.step(dt, {
       t: now,
-      pose: { 0: this.slots[0].pose, 1: this.slots[1].pose },
+      pose: pp
+        ? { 0: this.slots[0].rawPose, 1: this.slots[1].rawPose }
+        : { 0: this.slots[0].pose, 1: this.slots[1].pose },
+      reach: { 0: this.slots[0].reach, 1: this.slots[1].reach },
+      sway: { 0: this.slots[0].sway, 1: this.slots[1].sway },
+      holdPose: { 0: this.slots[0].holdPose, 1: this.slots[1].holdPose },
       connected: {
         0: this.slots[0].bot !== null || this.slots[0].droppedAt === null,
         1: this.slots[1].bot !== null || this.slots[1].droppedAt === null,

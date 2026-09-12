@@ -77,31 +77,31 @@ const NICKNAME_NOUN: Record<string, string[]> = {
 
 const BANK_TEMPLATES: Record<CueClass, string[]> = {
   'match.intro': [
-    '{a} versus {b}. One of them has practised. Allegedly.',
-    "Welcome to the {sport}. {a}, {b}, and a ball that didn't ask for this.",
-    '{a} and {b}, first to seven. Try to make it look deliberate.',
-    'Here we go: {a} against {b}. Nobody has warmed up and everybody is confident.',
+    '{a} versus {b}. One of them has practised.',
+    '{a}, {b}, and a ball that did not ask for this.',
+    '{a} against {b}. Nobody warmed up. Everybody is confident.',
+    'Here we go. Try to make it look deliberate.',
   ],
   'serve.normal': [
     '{p} to serve. Deep breaths.',
     'Service {p}.',
-    '{p} has the ball and a plan, in that order.',
+    '{p} has a plan. Probably.',
     'Up steps {p}.',
   ],
   'serve.ace': [
-    "{p} serves, {o} waves. That's free.",
-    'Untouched. {p} will take that all day.',
+    '{p} serves, {o} waves. Free.',
+    'Untouched. Take that all day.',
   ],
   'rally.long': [
-    'This one has a mortgage on it.',
-    "Neither of them wants to be the one who ends it.",
-    'Still going. Somebody make a decision.',
-    'This rally has outlasted my patience and two of my opinions.',
+    'This one has a mortgage.',
+    'Neither of them wants to end it.',
+    'Still going. Somebody decide.',
+    'I have lost the thread of this.',
   ],
   'rally.epic': [
-    'This is no longer a rally, it is a lifestyle.',
-    'Somebody put a kettle on, this one is settling in.',
-    'I have started and abandoned three sentences during this rally.',
+    'This is not a rally, it is a lifestyle.',
+    'Put the kettle on.',
+    'I have aged during this point.',
   ],
   'hit.smash': [
     '{p} {bighit} that.',
@@ -109,59 +109,59 @@ const BANK_TEMPLATES: Record<CueClass, string[]> = {
     '{p} has decided the ball is the problem.',
   ],
   'hit.dink': [
-    'Soft hands from {p}.',
+    'Soft hands, {p}.',
     '{p} takes the pace off. Cunning.',
-    'A little nudge from {p}, full of bad intentions.',
+    'A nudge, full of bad intentions.',
   ],
   'hit.lob': [
     '{p} sends it into orbit.',
-    'Up it goes. {p} buying time and airspace.',
+    'Up it goes. Buying airspace.',
     'That ball has a window seat.',
   ],
   'whiff.bad': [
     '{p} {whiff}.',
     'And {p} {whiff}. We all saw it.',
-    "{p} got the timing of a man dialling a rotary phone.",
-    '{p} {whiff}. The ball carried on regardless.',
+    'Timing of a rotary phone.',
+    '{p} {whiff}. The ball moved on.',
   ],
   'whiff.repeat': [
-    "{p} again. That's becoming a theme.",
-    '{p} is now collecting these.',
+    '{p} again. A theme, then.',
+    '{p} is collecting these.',
     'Twice. {p} is workshopping something.',
   ],
   'net.hit': [
-    '{p} finds the net, which was right there the whole time.',
-    'Straight into the tape. {p} will want that back.',
-    'The net remains undefeated against {p}.',
+    '{p} finds the net. It was right there.',
+    'Into the tape. Want that back.',
+    'The net remains undefeated.',
   ],
   'out.long': [
-    'Long. {p} was aiming for the car park.',
-    'That is out, and it is out by a distance.',
+    'Long. Aiming for the car park.',
+    'Out, and out by a distance.',
     '{p} overcooked it.',
   ],
   'point.close': [
     '{p} takes it. Tight.',
     'Point {p}. Earned, barely.',
-    'That goes to {p}, and {o} knows it was close.',
+    'That goes to {p}. {o} knows it.',
   ],
   'point.blowout': [
     '{p} again. This is getting one-sided.',
-    "Point {p}. {o} is having a think.",
-    '{p} is simply better at this right now.',
+    'Point {p}. {o} is having a think.',
+    '{p} is simply better at this.',
   ],
   'point.winner': [
     '{p} ends it properly.',
-    "That's a winner. No argument.",
+    'A winner. No argument.',
     '{p} closes the door.',
   ],
   streak: [
     '{p} is on a roll.',
-    "{p} has found something. {o} would like it back.",
-    'Three on the spin for {p}.',
+    '{p} has found something.',
+    'Three on the spin.',
   ],
   comeback: [
     '{p} was gone. {p} is not gone.',
-    'Look at this. {p} has dragged it back.',
+    'Look at this. Dragged it back.',
   ],
   gamepoint: [
     'Match point. Try not to think about it.',
@@ -169,15 +169,50 @@ const BANK_TEMPLATES: Record<CueClass, string[]> = {
     'One point. Everything on it.',
   ],
   'match.end': [
-    "{p} wins it. {o} will claim the sun was in their eyes.",
-    "That's the match to {p}. Well played, genuinely.",
-    '{p} takes it. Somebody get {o} a sit down.',
+    '{p} wins it. {o} blames the sun.',
+    "That's the match to {p}. Genuinely well played.",
+    '{p} takes it. Someone sit {o} down.',
   ],
+  /*
+   * Nothing is happening.
+   *
+   * These are the only lines in the bank whose subject is the absence of play,
+   * and they are the ones that stop a stalled game reading as a broken one.
+   * Kept light: the player has probably wandered off, and the right register is
+   * an amused commentator filling air, not an error message.
+   */
+  'stall.waiting': [
+    'Any time, {p}.',
+    '{p} is taking a moment.',
+    'We wait. The ball waits.',
+    'Still {p} to serve.',
+    '{p}? Whenever you are ready.',
+  ],
+  'stall.long': [
+    '{p} has gone. Genuinely gone.',
+    '{waited} seconds. I have checked my phone twice.',
+    'The ball is out there somewhere. So is {p}.',
+    'Has anybody seen {p}?',
+    'This is the longest serve in the sport.',
+    '{waited} seconds of nothing. Riveting.',
+  ],
+  /*
+   * Deliberately empty, and it has to be.
+   *
+   * Coaching is written on demand in `commentary/tutor.ts`, keyed to the step
+   * the player is actually stuck on. A cold bank is the opposite of that — lines
+   * drawn at random, before the match, for whatever comes up — so a pre-written
+   * one here would eventually teach somebody the wrong step. `BANK_CLASSES` does
+   * not ask for this class; the entry exists because the map is exhaustive over
+   * every cue class, which is what makes adding one a compile error rather than
+   * a silent gap.
+   */
+  tutorial: [],
 };
 
 /** Templates that cite a concrete fact. These are what make it sound attentive. */
 const FACT_TEMPLATES: Partial<Record<CueClass, string[]>> = {
-  'whiff.bad': ['{p} {whiff} — and {fact}.', 'Remember, {fact}. This is not helping.'],
+  'whiff.bad': ['{p} {whiff} — and {fact}.', '{fact}. Not helping.'],
   'whiff.repeat': ['{fact}, and there goes another.'],
   'net.hit': ['Into the net again. {fact}.'],
   'out.long': ['Out. {fact}.'],
@@ -188,24 +223,29 @@ const FACT_TEMPLATES: Partial<Record<CueClass, string[]>> = {
   comeback: ['{fact}. Extraordinary.'],
   gamepoint: ['Match point, and {fact}.'],
   'match.end': ['{p} wins. For the record: {fact}.'],
-  'rally.long': ['{n} shots and counting. {fact}.'],
-  'rally.epic': ['{n} shots. {fact}. This is absurd.'],
+  'rally.long': ['{n} shots. {fact}.'],
+  'rally.epic': ['{n} shots. {fact}. Absurd.'],
   'hit.smash': ['{p} {bighit} it — {fact}.'],
+  // A wait is the one moment with room for a whole fact. Nothing is happening,
+  // so there is nothing to talk over.
+  'stall.waiting': ['While we wait: {fact}.'],
+  'stall.long': ['Still nothing. {fact}, for what it is worth.'],
 };
 
 /** Templates that call back to the coined running bit. */
 const BIT_TEMPLATES: Partial<Record<CueClass, string[]>> = {
   'whiff.bad': ['{bit} does it again.', 'Classic {bit}.'],
   'whiff.repeat': ['{bit} is living up to the name.'],
-  'net.hit': ['{bit} pays another visit to the tape.'],
+  'net.hit': ['{bit} visits the tape again.'],
   'out.long': ['{bit}, ladies and gentlemen.'],
   'point.close': ['{bit} sneaks one.'],
   'point.blowout': ['{bit} is running away with this.'],
   'point.winner': ['{bit} with the finish.'],
-  streak: ['{bit} is on a run, and I did not see that coming.'],
-  gamepoint: ['Match point for {bit}. Remember when I named them that?'],
+  streak: ['{bit} is on a run. Did not see that coming.'],
+  gamepoint: ['Match point for {bit}. The name fits.'],
   'match.end': ['{bit} takes the match. The name stays.'],
   'hit.smash': ['{bit} found a hammer.'],
+  'stall.long': ['{bit} has left the building.'],
 };
 
 export class OfflineWriter implements Writer {
@@ -228,8 +268,16 @@ export class OfflineWriter implements Writer {
       const templates = BANK_TEMPLATES[cls] ?? [];
       // The bank is pre-written, so it knows names but not event detail. The
       // subject stays a placeholder: the Director instantiates it per seat.
-      for (let i = 0; i < perClass && i < templates.length; i++) {
-        const line = render(templates[i], this.slotsFor(cls, narrative, 0, {}, true));
+      //
+      // Counting what RENDERS, not what is attempted. A template with a slot the
+      // bank cannot fill — one citing how long a wait has been, say — renders to
+      // nothing, and stopping after `perClass` attempts let a single such
+      // template silently cost the class a line. The classes that need the most
+      // variety are exactly the ones with conditional slots, so they were the
+      // ones that ran dry first.
+      for (const tpl of templates) {
+        if (lines.length >= perClass) break;
+        const line = render(tpl, this.slotsFor(cls, narrative, 0, {}, true));
         if (line && !lines.includes(line)) lines.push(line);
       }
       if (lines.length) out.set(cls, lines);
@@ -330,6 +378,10 @@ export class OfflineWriter implements Writer {
     const num = data.shots ?? data.rallyLength ?? data.length ?? data.deficit;
     if (typeof num === 'number') slots.n = String(num);
     if (typeof data.shot === 'string') slots.shot = data.shot;
+    // How long the wait has been, in whole seconds. Only the stall lines use it,
+    // and a template whose slot is missing is skipped rather than rendered with
+    // a hole in it — so this being absent everywhere else costs nothing.
+    if (typeof data.waitedS === 'number') slots.waited = String(data.waitedS);
     void cls;
     return slots;
   }

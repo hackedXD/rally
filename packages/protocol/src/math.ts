@@ -265,3 +265,49 @@ export function qFromUnitZTo(dir: Vec3): Quat {
   const s = Math.sqrt((1 + dot) * 2);
   return qnorm([axis[0] / s, axis[1] / s, axis[2] / s, s / 2]);
 }
+
+// ── Rotation vectors (the exponential map on SO(3)) ───────────────────────────
+
+/**
+ * Rotation vector (axis * angle, radians) -> quaternion. The exponential map.
+ *
+ * This and `qToRotVec` are what let a rotation be treated as a vector for the
+ * length of one arithmetic step — scaled by a horizon, added onto a pose — which
+ * is what the pose predictor in `@rally/motion` is built out of. Quaternions
+ * multiply; angular velocities add, and only in this representation.
+ */
+export function qFromRotVec(r: Vec3): Quat {
+  const theta = vlen(r);
+  // sin(θ/2)/θ -> 1/2 as θ -> 0. Below this the series and the division agree to
+  // float precision, and the division does not.
+  if (theta < 1e-7) return qnorm([r[0] / 2, r[1] / 2, r[2] / 2, 1]);
+  const s = Math.sin(theta / 2) / theta;
+  return [r[0] * s, r[1] * s, r[2] * s, Math.cos(theta / 2)];
+}
+
+/**
+ * Quaternion -> rotation vector, always the short way round.
+ *
+ * q and -q are the same rotation; the sign is chosen so the result is the arc
+ * under 180 degrees. Without that a paddle crossing the boundary reports a
+ * 359-degree turn and everything downstream sees a rotation rate in the
+ * thousands.
+ */
+export function qToRotVec(q: Quat): Vec3 {
+  const n = qnorm(q);
+  const flip = n[3] < 0 ? -1 : 1;
+  const x = n[0] * flip;
+  const y = n[1] * flip;
+  const z = n[2] * flip;
+  const w = n[3] * flip;
+  const sin = Math.hypot(x, y, z);
+  if (sin < 1e-9) return [2 * x, 2 * y, 2 * z];
+  const theta = 2 * Math.atan2(sin, clamp(w, -1, 1));
+  const k = theta / sin;
+  return [x * k, y * k, z * k];
+}
+
+/** Angle between two orientations, radians. The one honest error metric. */
+export function qAngle(a: Quat, b: Quat): number {
+  return vlen(qToRotVec(qmul(a, qconj(b))));
+}

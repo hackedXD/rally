@@ -9,10 +9,29 @@
 
 import * as THREE from 'three';
 import type { CourtSpec, SportId } from '@rally/protocol';
+import { PALETTE } from '../theme.js';
 
 export interface CourtLook {
   surface: string;
   surfaceEdge: string;
+  /** The second painted field: the kitchen, or badminton's forecourt. */
+  zone: string;
+  /**
+   * What type must be set in when it sits on `surround`.
+   *
+   * The apron floods the whole viewport behind the lobby, and it is not the same
+   * colour for every sport — badminton's is green, where white type measures
+   * 2.28:1 and is simply unreadable. Each sport therefore carries the ink its own
+   * ground can hold.
+   */
+  groundInk: string;
+  /**
+   * What type must be set in when it sits on `surface` — the playing area
+   * itself, which is green for pickleball and blue for the other two. The rack
+   * stencils the sport's name across it, so this is a different question from
+   * `groundInk` and has a different answer per sport.
+   */
+  surfaceInk: string;
   line: string;
   surround: string;
   accent: string;
@@ -24,7 +43,10 @@ export interface CourtLook {
  */
 export const BALL_RADIUS: Record<SportId, number> = {
   pickleball: 0.037,
-  tabletennis: 0.05,
+  // A real 40 mm ball. Table tennis is drawn by `PingPongScene`, which carries
+  // its own copy of this — the entry stays so anything reading the record by
+  // sport gets a true number rather than the old scaled-up court's.
+  tabletennis: 0.02,
   badminton: 0.034,
   bowling: 0.108,
 };
@@ -38,10 +60,20 @@ export const BALL_RADIUS: Record<SportId, number> = {
  * disc on a stub would throw away the most legible difference between the two
  * sports on screen.
  */
+/**
+ * How the head is built.
+ *
+ * Not a style flag — these are three different objects. A strung frame is a rim
+ * around a hole; a paddle is a flat slab with a rubber bumper right round its
+ * edge; a bat is a disc. Drawing any of them as another throws away the most
+ * legible difference between the sports on screen.
+ */
+export type RacketShape = 'paddle' | 'bat' | 'strung';
+
 export interface RacketLook {
-  /** Head radius, metres. */
+  /** Half the head's WIDTH, metres. Also the radius, for a round head. */
   headRadius: number;
-  /** Vertical stretch of the head. 1 is a round paddle; above 1 is an oval. */
+  /** Height as a multiple of the width. 1 is round; above 1 is taller than wide. */
   headOval: number;
   /** Frame thickness, metres. */
   thickness: number;
@@ -49,48 +81,204 @@ export interface RacketLook {
   shaft: number;
   /** Shoulder to racket centre. A badminton racket reaches a long way. */
   armLen: number;
-  /** A strung frame reads as an open face; a paddle reads as a solid one. */
-  strung: boolean;
+  /**
+   * Height the hand carries the racket at, metres.
+   *
+   * Swing style again, and it is not cosmetic: a shuttle is met above the head,
+   * a pickleball somewhere between the waist and the chest. Held at one height
+   * for every sport, a pickleball paddle sits exactly where the player's own
+   * head is drawn and disappears behind it from the broadcast camera.
+   */
+  holdHeight: number;
+  /**
+   * How far to the player's side the hand carries it, metres.
+   *
+   * Without this the racket is drawn on the body's own centre line and spends
+   * the match inside the capsule that represents the player — visible only when
+   * the swing animation happens to throw it clear. A hand is not in the middle
+   * of a chest.
+   *
+   * Mirrored per seat so both ends look the same from their own camera, and
+   * deliberately not tied to handedness: which hand somebody holds it in is not
+   * something the simulation knows.
+   */
+  holdSide: number;
+  shape: RacketShape;
+  /** Corner radius of a paddle face, metres. Ignored by the other shapes. */
+  cornerRadius?: number;
+  /** Width of a paddle's edge guard, metres. Ignored by the other shapes. */
+  guard?: number;
 }
 
 export const RACKETS: Record<SportId, RacketLook> = {
-  pickleball: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
-  tabletennis: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
-  badminton: { headRadius: 0.13, headOval: 1.14, thickness: 0.011, shaft: 0.34, armLen: 0.95, strung: true },
-  bowling: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
+  /*
+   * A regulation pickleball paddle, near enough. The rules cap length plus width
+   * at 24 inches and length at 17, and almost everything on the market lands at
+   * about 15.75 x 7.9 — so a 0.20 m wide, 0.27 m tall face over a 0.13 m handle
+   * is the real object rather than an approximation of one.
+   *
+   * The proportions are the whole point. It is noticeably TALLER than it is
+   * wide, which a disc cannot express, and it is the shape people recognise
+   * before they read anything else on screen.
+   */
+  pickleball: {
+    headRadius: 0.1,
+    headOval: 1.35,
+    thickness: 0.014,
+    shaft: 0.13,
+    armLen: 0.62,
+    // Chest height. Pickleball is played low — the kitchen rule is about keeping
+    // players off the net, and the dink that results is struck from the waist.
+    holdHeight: 0.95,
+    holdSide: 0.34,
+    shape: 'paddle',
+    cornerRadius: 0.045,
+    guard: 0.007,
+  },
+  // Table tennis has its own renderer entirely — see `PingPongScene`. This entry
+  // exists so the record is total, and is what a fallback would draw.
+  tabletennis: { headRadius: 0.077, headOval: 1, thickness: 0.02, shaft: 0.11, armLen: 0.55, holdHeight: 1.0, holdSide: 0.3, shape: 'bat' },
+  // Carried high, because that is where the shuttle is met.
+  badminton: { headRadius: 0.13, headOval: 1.14, thickness: 0.011, shaft: 0.34, armLen: 0.95, holdHeight: 1.2, holdSide: 0.3, shape: 'strung' },
+  bowling: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, holdHeight: 0.8, holdSide: 0.3, shape: 'bat' },
 };
 
+/**
+ * A pickleball paddle's face and its edge guard, as geometry.
+ *
+ * Built rather than composed from primitives because the shape IS the
+ * recognition: a rounded rectangle with a bumper round the rim, not a circle.
+ * Two pieces so they can take different materials — the face is the player's
+ * colour, the guard is the black rubber every paddle has.
+ *
+ * Both are centred on the origin and face down local +Z, which is the frame
+ * every other racket in this file uses.
+ */
+export function makePaddleGeometry(look: RacketLook): {
+  face: THREE.ExtrudeGeometry;
+  guard: THREE.ExtrudeGeometry;
+  dispose: () => void;
+} {
+  const w = look.headRadius * 2;
+  const h = w * look.headOval;
+  const r = look.cornerRadius ?? 0.04;
+  const g = look.guard ?? 0.006;
+
+  const face = new THREE.ExtrudeGeometry(roundedRect(w, h, r), {
+    depth: look.thickness,
+    bevelEnabled: true,
+    bevelThickness: 0.0015,
+    bevelSize: 0.0015,
+    bevelSegments: 2,
+    curveSegments: 10,
+  });
+  face.translate(0, 0, -look.thickness / 2);
+
+  // The guard is a ring: the outer outline with the face punched out of it. It
+  // stands a little proud of the face on both sides, which is exactly what the
+  // real thing does and what makes the edge read at a distance.
+  const outer = roundedRect(w + g * 2, h + g * 2, r + g);
+  outer.holes.push(roundedRect(w, h, r));
+  const depth = look.thickness * 1.5;
+  const guard = new THREE.ExtrudeGeometry(outer, {
+    depth,
+    bevelEnabled: false,
+    curveSegments: 10,
+  });
+  guard.translate(0, 0, -depth / 2);
+
+  return {
+    face,
+    guard,
+    dispose: () => {
+      face.dispose();
+      guard.dispose();
+    },
+  };
+}
+
+/**
+ * A rounded rectangle, centred on the origin.
+ *
+ * Wound counter-clockwise. `ExtrudeGeometry` uses the winding to decide which
+ * way the faces point, and a hole punched with the same winding as its outline
+ * is not a hole.
+ */
+function roundedRect(w: number, h: number, r: number): THREE.Shape {
+  const x = -w / 2;
+  const y = -h / 2;
+  const rad = Math.min(r, w / 2, h / 2);
+  const s = new THREE.Shape();
+  s.moveTo(x + rad, y);
+  s.lineTo(x + w - rad, y);
+  s.quadraticCurveTo(x + w, y, x + w, y + rad);
+  s.lineTo(x + w, y + h - rad);
+  s.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  s.lineTo(x + rad, y + h);
+  s.quadraticCurveTo(x, y + h, x, y + h - rad);
+  s.lineTo(x, y + rad);
+  s.quadraticCurveTo(x, y, x + rad, y);
+  return s;
+}
+
+/**
+ * The paint.
+ *
+ * A real outdoor court is acrylic over asphalt in two flat fields: a saturated
+ * in-bounds colour inside a contrasting apron, with the non-volley zone painted
+ * differently again. No gradients, because paint does not have any — the whole
+ * look reads as court only while the fields stay flat.
+ *
+ * Every entry is a getter rather than a value. Module bodies run before
+ * `syncTheme()` reconciles the palette against the stylesheet, so a captured
+ * copy here would be the one thing in the app that could still drift from CSS.
+ */
 export const LOOKS: Record<SportId, CourtLook> = {
   pickleball: {
-    surface: '#1d4f6b',
-    surfaceEdge: '#17425a',
-    line: '#f4f8ff',
-    surround: '#123040',
-    accent: '#4ade80',
+    get surface() { return PALETTE.court; },
+    get surfaceEdge() { return PALETTE.apron; },
+    get zone() { return PALETTE.kitchen; },
+    get line() { return PALETTE.line; },
+    get surround() { return PALETTE.apron; },
+    get accent() { return PALETTE.optic; },
+    get groundInk() { return PALETTE.line; },
+    get surfaceInk() { return PALETTE.ink; },
   },
+  // Table tennis is not drawn from a `CourtLook` — `PingPongScene` builds real
+  // geometry instead. These are the lobby's colours for it, and the accent the
+  // HUD and the timing ring pick up.
   tabletennis: {
-    surface: '#15527d',
-    surfaceEdge: '#0e3d61',
-    line: '#ffffff',
-    // Light enough that the far half of the table does not disappear into it.
-    surround: '#111f33',
-    accent: '#38bdf8',
+    get surface() { return PALETTE.apron; },
+    get surfaceEdge() { return PALETTE.apronDeep; },
+    get zone() { return PALETTE.apronDeep; },
+    get line() { return PALETTE.line; },
+    get surround() { return PALETTE.apronDeep; },
+    get accent() { return PALETTE.optic; },
+    get groundInk() { return PALETTE.line; },
+    get surfaceInk() { return PALETTE.line; },
   },
+  // Blue in-bounds against a green apron: the same two fields as pickleball,
+  // swapped, so the two 13-metre courts are never mistaken for each other in the
+  // half second the carousel takes to re-stripe between them.
   badminton: {
-    // Tournament mats are green or blue; green keeps it instantly distinct from
-    // the two blue courts.
-    surface: '#1f6b4a',
-    surfaceEdge: '#17553b',
-    line: '#f6fff8',
-    surround: '#0f2a20',
-    accent: '#fbbf24',
+    get surface() { return PALETTE.apron; },
+    get surfaceEdge() { return PALETTE.court; },
+    get zone() { return PALETTE.apronDeep; },
+    get line() { return PALETTE.line; },
+    get surround() { return PALETTE.court; },
+    get accent() { return PALETTE.optic; },
+    get groundInk() { return PALETTE.inkBlue; },
+    get surfaceInk() { return PALETTE.line; },
   },
   bowling: {
-    surface: '#8a5a2b',
-    surfaceEdge: '#6d4720',
-    line: '#f1e0c6',
-    surround: '#1a1410',
-    accent: '#fbbf24',
+    get surface() { return PALETTE.courtAlt; },
+    get surfaceEdge() { return PALETTE.apron; },
+    get zone() { return PALETTE.kitchen; },
+    get line() { return PALETTE.line; },
+    get surround() { return PALETTE.apron; },
+    get accent() { return PALETTE.optic; },
+    get groundInk() { return PALETTE.line; },
+    get surfaceInk() { return PALETTE.ink; },
   },
 };
 
@@ -108,15 +296,22 @@ export function makeCourtTexture(court: CourtSpec, look: CourtLook, sport: Sport
   canvas.height = h;
   const g = canvas.getContext('2d')!;
 
-  const grad = g.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, look.surfaceEdge);
-  grad.addColorStop(0.5, look.surface);
-  grad.addColorStop(1, look.surfaceEdge);
-  g.fillStyle = grad;
+  // Flat, because paint is flat. A gradient here is the single thing that would
+  // stop this reading as a painted court and start it reading as a lit panel.
+  g.fillStyle = look.surface;
   g.fillRect(0, 0, w, h);
 
-  // Subtle texture so a flat plane does not read as flat.
-  g.globalAlpha = 0.05;
+  // The second painted field, laid down before the lines so the tape sits on top
+  // of it exactly as it does on a real court.
+  if (court.nonVolleyZone > 0) {
+    const zone = court.nonVolleyZone * pxPerM;
+    g.fillStyle = look.zone;
+    g.fillRect(0, h / 2 - zone, w, zone * 2);
+  }
+
+  // Acrylic over asphalt has a tooth to it. Kept well under the line contrast so
+  // the surface reads as a material rather than as noise.
+  g.globalAlpha = 0.035;
   for (let i = 0; i < 2600; i++) {
     g.fillStyle = i % 2 ? '#ffffff' : '#000000';
     g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
