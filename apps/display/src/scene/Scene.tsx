@@ -22,7 +22,14 @@ import {
 import type { RallyClient } from '../net/client.js';
 import type { RenderState } from '../net/snapshots.js';
 import { feel } from '../store/feel.js';
-import { BALL_RADIUS, LOOKS, cameraFor, makeCourtTexture, makeNetTexture } from './court.js';
+import {
+  BALL_RADIUS,
+  LOOKS,
+  RACKETS,
+  cameraFor,
+  makeCourtTexture,
+  makeNetTexture,
+} from './court.js';
 
 interface Props {
   client: RallyClient;
@@ -37,6 +44,7 @@ const tmpQ = new THREE.Quaternion();
 export function Scene({ client, court, sport, ownSeat }: Props) {
   const look = LOOKS[sport];
   const ballRadius = BALL_RADIUS[sport];
+  const racket = RACKETS[sport];
   const courtTex = useMemo(() => makeCourtTexture(court, look, sport), [court, look, sport]);
   const netTex = useMemo(() => makeNetTexture(), []);
   useEffect(() => () => {
@@ -61,6 +69,17 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
     () => cameraFor(court, lane(ownSeat), aspect),
     [court, ownSeat, aspect],
   );
+  const back = Math.abs(cam.position[2]);
+
+  // Everything that needs to scale with the scene, derived from the camera rather
+  // than from the court: fog tuned to court size alone leaves the far half of a
+  // small court almost fully fogged out, because the camera does not sit at a
+  // fixed multiple of the court length.
+  const fogNear = back * 1.15;
+  const fogFar = back * 3.6;
+  // The shadow frustum has to cover the players too, and they stand well outside
+  // the lines — behind a table, or a reach past a baseline.
+  const shadowSpan = Math.max(court.length, court.width) * 0.62 + 3.0;
 
   useEffect(() => {
     camera.position.set(...cam.position);
@@ -98,11 +117,14 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
       const t = replay.progress;
       const sign = seatSign(lane(ownSeat) as Seat);
       const angle = -0.9 + t * 1.8;
-      const radius = court.length * 0.42;
+      // Orbit at the broadcast camera's own distance rather than a fraction of
+      // the court length: on a small court the latter puts the camera inside the
+      // table and the replay plays out from under the net.
+      const radius = back * 0.78;
       camera.position.set(
         Math.sin(angle) * radius,
-        court.tableHeight + 2.2 + Math.sin(t * Math.PI) * 1.4,
-        sign * (radius * 0.85) + Math.cos(angle) * radius * 0.25,
+        court.tableHeight + cam.position[1] * 0.5 + Math.sin(t * Math.PI) * back * 0.12,
+        sign * (radius * 0.8) + Math.cos(angle) * radius * 0.2,
       );
       camera.lookAt(replay.p[0], replay.p[1] + 0.2, replay.p[2]);
     } else {
@@ -110,7 +132,24 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
       camera.lookAt(...cam.target);
     }
 
-    if (!render) return;
+    if (!render) {
+      // Nothing to draw yet — the buffer is empty because no snapshot has arrived
+      // (a display that just joined, or one waiting out a reconnect). Returning
+      // here without hiding anything leaves every object at the pose it was
+      // mounted with: two players stacked at the centre of the net, and the ball,
+      // whose geometry is a UNIT sphere scaled to the sport's radius each frame,
+      // drawn at a full metre across.
+      if (ball.current) ball.current.visible = false;
+      if (ballShadow.current) ballShadow.current.visible = false;
+      if (trail.current) trail.current.visible = false;
+      if (ring.current) ring.current.visible = false;
+      if (impact.current) impact.current.visible = false;
+      for (const rig of rigs.current) if (rig) rig.visible = false;
+      for (const paddle of paddles.current) if (paddle) paddle.visible = false;
+      return;
+    }
+    for (const rig of rigs.current) if (rig) rig.visible = true;
+    for (const paddle of paddles.current) if (paddle) paddle.visible = true;
 
     // ── Ball, trail and shadow ──────────────────────────────────────────────
     const bp: Vec3 | null = replay ? replay.p : render.ball?.p ?? null;
@@ -156,7 +195,10 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
       const rig = rigs.current[i];
       const paddle = paddles.current[i];
       if (rig) {
-        rig.position.set(p.p[0], court.tableHeight, p.p[2]);
+        // Feet on the FLOOR, never on the playing surface. For a table sport the
+        // sim already keeps the body behind the edge; standing them at table
+        // height as well would put them on top of it.
+        rig.position.set(p.p[0], 0, p.p[2]);
         // Face the net.
         rig.rotation.y = p.seat === 0 ? 0 : Math.PI;
         const wind = p.anim === 'wind' ? 0.12 : 0;
@@ -173,12 +215,12 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
 
       if (paddle) {
         tmpQ.set(p.paddleQ[0], p.paddleQ[1], p.paddleQ[2], p.paddleQ[3]);
-        const armLen = 0.62;
+        const armLen = racket.armLen;
         // The paddle hangs off the hand, in front of the shoulder.
         const forward = tmpV.set(0, 0, 1).applyQuaternion(tmpQ);
         const shoulder = new THREE.Vector3(
           p.p[0],
-          court.tableHeight + 1.12,
+          1.12,
           p.p[2] + seatSign(p.seat) * -0.12,
         );
         let target = shoulder.clone().addScaledVector(forward, armLen);
@@ -280,19 +322,21 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
   return (
     <>
       <color attach="background" args={[look.surround]} />
-      <fog attach="fog" args={[look.surround, half * 2.2, half * 6]} />
+      <fog attach="fog" args={[look.surround, fogNear, fogFar]} />
 
-      <hemisphereLight args={['#bcd4ff', look.surround, 0.55]} />
+      <hemisphereLight args={['#d6e4ff', look.surround, 1.15]} />
+      <ambientLight intensity={0.45} />
       <directionalLight
-        position={[court.width * 0.9, half * 1.5, -half * 0.5]}
-        intensity={2.3}
+        position={[shadowSpan * 0.7, shadowSpan * 1.1, -shadowSpan * 0.45]}
+        intensity={2.5}
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-bias={-0.0004}
+        shadow-bias={-0.0008}
+        shadow-normalBias={0.02}
       >
         <orthographicCamera
           attach="shadow-camera"
-          args={[-half * 1.1, half * 1.1, half * 1.1, -half * 1.1, 0.5, half * 4]}
+          args={[-shadowSpan, shadowSpan, shadowSpan, -shadowSpan, 0.5, shadowSpan * 4]}
         />
       </directionalLight>
 
@@ -315,7 +359,10 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
       {/* Table apron and legs, for sports played above the floor */}
       {court.tableHeight > 0 && (
         <>
-          <mesh position={[0, court.tableHeight - 0.06, 0]} castShadow>
+          {/* The apron sits clear of the playing surface. Coplanar faces z-fight,
+              and the artefact reads as large dark rectangles sliding across the
+              table rather than as the depth-buffer tie that it is. */}
+          <mesh position={[0, court.tableHeight - 0.08, 0]} castShadow>
             <boxGeometry args={[court.width + 0.06, 0.12, court.length + 0.06]} />
             <meshStandardMaterial color={look.surfaceEdge} roughness={0.6} />
           </mesh>
@@ -325,8 +372,10 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
             [-court.width / 2 + 0.3, court.length / 2 - 0.4],
             [court.width / 2 - 0.3, court.length / 2 - 0.4],
           ].map(([x, z], i) => (
-            <mesh key={i} position={[x, court.tableHeight / 2, z]} castShadow>
-              <boxGeometry args={[0.12, court.tableHeight, 0.12]} />
+            // Stops short of the apron, for the same reason the apron stops
+            // short of the surface: coplanar faces z-fight.
+            <mesh key={i} position={[x, (court.tableHeight - 0.16) / 2, z]} castShadow>
+              <boxGeometry args={[0.12, court.tableHeight - 0.16, 0.12]} />
               <meshStandardMaterial color="#111820" roughness={0.7} />
             </mesh>
           ))}
@@ -417,25 +466,71 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
             </mesh>
           </group>
           <group ref={(g) => (paddles.current[i] = g)}>
-            <mesh castShadow rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.115, 0.115, 0.022, 22]} />
-              <meshStandardMaterial
-                color={i === lane(ownSeat) ? '#1e293b' : '#3f1d2e'}
-                roughness={0.45}
-                metalness={0.1}
-              />
-            </mesh>
-            <mesh position={[0, 0, 0.013]} rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.1, 0.1, 0.004, 22]} />
-              <meshStandardMaterial
-                color={i === lane(ownSeat) ? '#38bdf8' : '#f472b6'}
-                emissive={i === lane(ownSeat) ? '#0ea5e9' : '#db2777'}
-                emissiveIntensity={0.35}
-                roughness={0.6}
-              />
-            </mesh>
-            <mesh position={[0, -0.17, 0]} castShadow>
-              <cylinderGeometry args={[0.018, 0.022, 0.13, 10]} />
+            {racket.strung ? (
+              /*
+               * A strung racket is a rim around a hole, and drawing it as a filled
+               * disc like a paddle puts a black dinner plate over the player's
+               * head. The torus already lies in the XY plane with its axis along
+               * Z, which is the direction the face points, so it needs no
+               * rotation — only a Y scale to make the oval.
+               */
+              <group scale={[1, racket.headOval, 1]}>
+                <mesh castShadow>
+                  <torusGeometry args={[racket.headRadius, racket.thickness, 8, 32]} />
+                  <meshStandardMaterial
+                    color={i === lane(ownSeat) ? '#cbd5e1' : '#f5d0e0'}
+                    roughness={0.35}
+                    metalness={0.5}
+                  />
+                </mesh>
+                <mesh>
+                  <circleGeometry args={[racket.headRadius, 32]} />
+                  <meshStandardMaterial
+                    color={i === lane(ownSeat) ? '#38bdf8' : '#f472b6'}
+                    emissive={i === lane(ownSeat) ? '#0ea5e9' : '#db2777'}
+                    emissiveIntensity={0.25}
+                    roughness={0.8}
+                    side={THREE.DoubleSide}
+                    // Strings are mostly air.
+                    transparent
+                    opacity={0.18}
+                  />
+                </mesh>
+              </group>
+            ) : (
+              <>
+                {/*
+                  * Local Y is the cylinder's axis, and the X rotation turns that
+                  * into world Z so the face points forward.
+                  */}
+                <mesh castShadow rotation={[Math.PI / 2, 0, 0]}>
+                  <cylinderGeometry
+                    args={[racket.headRadius, racket.headRadius, racket.thickness, 24]}
+                  />
+                  <meshStandardMaterial
+                    color={i === lane(ownSeat) ? '#1e293b' : '#3f1d2e'}
+                    roughness={0.45}
+                    metalness={0.1}
+                  />
+                </mesh>
+                <mesh position={[0, 0, racket.thickness * 0.6]} rotation={[Math.PI / 2, 0, 0]}>
+                  <cylinderGeometry
+                    args={[racket.headRadius * 0.87, racket.headRadius * 0.87, 0.004, 24]}
+                  />
+                  <meshStandardMaterial
+                    color={i === lane(ownSeat) ? '#38bdf8' : '#f472b6'}
+                    emissive={i === lane(ownSeat) ? '#0ea5e9' : '#db2777'}
+                    emissiveIntensity={0.35}
+                    roughness={0.6}
+                  />
+                </mesh>
+              </>
+            )}
+            <mesh
+              position={[0, -(racket.headRadius * racket.headOval + racket.shaft / 2), 0]}
+              castShadow
+            >
+              <cylinderGeometry args={[0.014, 0.02, racket.shaft, 10]} />
               <meshStandardMaterial color="#111827" roughness={0.8} />
             </mesh>
           </group>

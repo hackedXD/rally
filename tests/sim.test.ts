@@ -5,6 +5,7 @@ import {
   evaluateStrike,
   flightProbe,
   getSport,
+  idealNormal,
   makeRallyScoring,
   makeRng,
   mapSwingToShot,
@@ -479,5 +480,113 @@ describe('match', () => {
         expect(s.rally).toBeGreaterThanOrEqual(0);
       },
     });
+  });
+});
+
+describe('badminton', () => {
+  const sport = getSport('badminton');
+
+  it('is a real court, not a reskinned one', () => {
+    const pb = getSport('pickleball').court;
+    expect(sport.court.width).toBeLessThan(pb.width);
+    // The defining geometric difference: a net nearly twice as high, over a
+    // court of about the same length.
+    expect(sport.court.netHeight).toBeGreaterThan(pb.netHeight * 1.7);
+    expect(sport.court.length).toBeGreaterThan(12);
+  });
+
+  it('meets the shuttle overhead, where the other sports meet it at the waist', () => {
+    const pb = getSport('pickleball').strike;
+    // Swing style, as numbers. Contact is above the net here and below it in
+    // pickleball, which is why the smash is badminton's default attacking shot.
+    expect(sport.strike.contactHeight).toBeGreaterThan(sport.court.netHeight);
+    expect(getSport('pickleball').strike.contactHeight).toBeLessThan(
+      getSport('pickleball').court.netHeight,
+    );
+    expect(sport.strike.contactHeight).toBeGreaterThan(pb.contactHeight * 2);
+    // And a reach that actually allows an overhead to be played.
+    expect(sport.strike.reachHeight).toBeGreaterThan(sport.strike.contactHeight);
+    // The widest speed range in the game: a net shot and a smash.
+    expect(sport.strike.maxReturn).toBeGreaterThan(pb.maxReturn * 2);
+  });
+
+  it('never lets the shuttle bounce and stay in play', () => {
+    expect(sport.ball.bounces).toBe(false);
+
+    // The rule, end to end: across a full match no rally may continue past a
+    // landing, so no point can ever be decided by a second bounce.
+    const res = playMatch({ sport: 'badminton', seed: 31, skill: 0.55, maxSeconds: 300 });
+    const points = res.events.filter((e) => e.type === 'point');
+    expect(points.length).toBeGreaterThan(5);
+    expect(res.events.some((e) => e.type === 'double_bounce')).toBe(false);
+    expect(points.some((e) => e.data.reason === 'double_bounce')).toBe(false);
+
+    // And the ending that replaces it is the one actually doing the work.
+    expect(points.some((e) => e.data.reason === 'grounded')).toBe(true);
+  });
+
+  it('plays a full match in a sane number of shots', () => {
+    let shots = 0;
+    let rallies = 0;
+    for (const seed of [7, 11, 23]) {
+      const res = playMatch({ sport: 'badminton', seed, skill: 0.55, maxSeconds: 400 });
+      expect(res.match.phase).toBe('gameover');
+      for (const e of res.events) {
+        if (e.type !== 'point') continue;
+        rallies++;
+        shots += Number(e.data.rallyLength) || 0;
+      }
+    }
+    // Wide bounds on purpose: this guards against the two ways it has actually
+    // broken — every serve dying in the tape (1 shot a rally, which is what real
+    // shuttle drag produces), and a rally nobody can lose because an
+    // auto-positioned player always reaches a shuttle that never bounces.
+    const avg = shots / rallies;
+    expect(avg).toBeGreaterThan(2.5);
+    expect(avg).toBeLessThan(16);
+  });
+
+  it('actually plays the shuttle overhead', () => {
+    // The regression this exists for: the contact search once snapped every
+    // candidate down to the comfortable height, and `idealNormal` asked for lift
+    // on a shot that goes downward. Between them, a whole match produced zero
+    // contacts above shoulder height — so an overhead swing had nothing to
+    // connect with, which is what "overheads barely register" feels like.
+    const netTop = sport.court.netHeight;
+    const heights: number[] = [];
+    for (const seed of [7, 23]) {
+      const seen = new Set<number>();
+      playMatch({
+        sport: 'badminton', seed, skill: 0.55, maxSeconds: 300, collectSnapshots: true,
+        onSnapshot: (s) => {
+          if (!s.strike || seen.has(s.strike.tIdeal)) return;
+          seen.add(s.strike.tIdeal);
+          heights.push(s.strike.p[1]);
+        },
+      });
+    }
+    expect(heights.length).toBeGreaterThan(40);
+
+    const aboveNet = heights.filter((y) => y > netTop).length / heights.length;
+    expect(aboveNet).toBeGreaterThan(0.5);
+
+    // And genuinely overhead, not merely over the tape.
+    const overhead = heights.filter((y) => y > 2.0).length / heights.length;
+    expect(overhead).toBeGreaterThan(0.25);
+  });
+
+  it('asks for a downward face on a shot struck from above the net', () => {
+    // Same shot, met low and met high. The low one has to be lifted; the high one
+    // is a smash and must not be scored as though it were a bad lift.
+    const court = sport.court;
+    const low = idealNormal([0, 0.6, 4], 0 as Seat, court);
+    const high = idealNormal([0, 2.5, 4], 0 as Seat, court);
+    expect(low[1]).toBeGreaterThan(0);
+    expect(high[1]).toBeLessThan(0);
+
+    // Unchanged for a sport whose contact sits below its net.
+    const pb = getSport('pickleball');
+    const pbNormal = idealNormal([0, pb.strike.contactHeight, 4], 0 as Seat, pb.court);
+    expect(pbNormal[1]).toBeGreaterThan(0);
   });
 });

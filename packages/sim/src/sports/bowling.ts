@@ -74,9 +74,17 @@ export const bowling: SportModule = {
     nonVolleyZone: 0,
     surround: 1.2,
     tableHeight: 0,
+    standBehind: 0,
   },
 
-  ball: { radius: 0.108, restitution: 0.2, dragK: 0.02, gravityScale: 1, friction: 0.96 },
+  ball: {
+    radius: 0.108,
+    restitution: 0.2,
+    dragK: 0.02,
+    gravityScale: 1,
+    friction: 0.96,
+    bounces: true,
+  },
 
   strike: {
     windowMs: 400,
@@ -87,6 +95,7 @@ export const bowling: SportModule = {
     paceMin: 2,
     paceMax: 8,
     reachDepth: 0.5,
+    reachHeight: 2.2,
     flightScale: 1.0,
   },
 

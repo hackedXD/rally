@@ -22,7 +22,7 @@ import type { SimParams } from './params.js';
 
 const PREDICT_MAX_S = 4.0;
 
-export type ContactKind = 'volley' | 'groundstroke';
+export type ContactKind = 'volley' | 'groundstroke' | 'intercept';
 
 export interface ContactPrediction {
   /** Absolute server time of ideal contact. */
@@ -39,6 +39,11 @@ export interface PredictOptions {
   bouncesAlready?: number;
   /** Serves must bounce before they can be returned. */
   mustBounce?: boolean;
+  /**
+   * Where the receiver is standing right now. Only used by sports whose ball
+   * never bounces, to decide WHERE along the descent they meet it.
+   */
+  receiverAt?: Vec3;
 }
 
 export interface LandingPrediction {
@@ -52,14 +57,36 @@ export interface LandingPrediction {
 /**
  * When and where the receiving player will meet the ball.
  *
- * Two candidate contacts are considered and the earliest wins:
+ * Three candidate contacts are considered and the earliest wins:
  *   - a volley, as the ball crosses the receiver's body plane in the air at a
  *     sane height;
  *   - a groundstroke, as the ball descends back through contact height after
- *     bouncing on the receiver's side.
+ *     bouncing on the receiver's side;
+ *   - an interception, for a projectile that will never bounce at all.
  *
  * A fast flat drive produces the first; a dink or a lob produces the second.
  * That is the whole reason players never have to choose.
+ *
+ * The third exists because badminton is not a bouncing sport, and the difference
+ * is bigger than it sounds. Everywhere else the receiver can stand near their
+ * baseline and wait: anything short bounces and comes back up to them. A
+ * shuttlecock never does — it lands where it lands and the rally is over — so
+ * the receiver has to go and meet it in the air.
+ *
+ * Which raises the question the other two sports never ask: meet it WHERE? Every
+ * point on the shuttle's descent is a legal contact, so taking the first one —
+ * the instant it drops below head height — is technically valid and produces
+ * nonsense. The trajectory leaves at head height and has to clear a net nearly
+ * as high, so it is already descending a metre past the tape, and both players
+ * end up crowded at the net playing a sport that is nominally thirteen metres
+ * long. Measured, contact sat at 19% of the half-court against pickleball's 104%.
+ *
+ * So the receiver meets it at the point on the descent NEAREST TO WHERE THEY
+ * ALREADY STAND, which is what a player does: you do not sprint to the net for a
+ * shuttle that is going to land at the back. A clear is met deep and high, a drop
+ * at the net and low, a drive somewhere between — and because contact height now
+ * varies with the shot, the "awkward height" term of the difficulty model starts
+ * doing its job here too, where a fixed contact height had flattened it to zero.
  */
 export function predictContact(
   body: BallBody,
@@ -82,6 +109,28 @@ export function predictContact(
   let bounces = opts.bouncesAlready ?? 0;
   const steps = Math.ceil(PREDICT_MAX_S / dt);
 
+  // Nearest-contact search, for a shuttle. `anchor` is where the receiver is
+  // standing; the best candidate so far is the one they have to move least to
+  // reach. Null anchor falls back to the earliest candidate.
+  const anchor = opts.receiverAt ?? null;
+  // A holder rather than a bare `let`: TypeScript does not track assignments made
+  // inside a closure, so a plain variable stays narrowed to `null` at every read
+  // below and the whole search silently typechecks as unreachable.
+  const best: { found: { d: number; hit: ContactPrediction } | null } = { found: null };
+  const consider = (c: ContactPrediction): ContactPrediction | null => {
+    if (!anchor) return c;
+    // Cost, in metres: how far they have to run, plus what the contact height
+    // costs them. A player will take two steps to avoid scraping the shuttle off
+    // the floor, and will not sprint to the net to meet a deep clear at shin
+    // height. With no such trade-off the first behaviour gives 40% net errors
+    // and three-shot rallies, and the second puts both players on the tape.
+    const d =
+      Math.hypot(c.p[0] - anchor[0], c.p[2] - anchor[2]) +
+      params.contactComfortBias * heightCost(c.p[1] - contactY, params.highReachEase);
+    if (!best.found || d < best.found.d) best.found = { d, hit: c };
+    return null;
+  };
+
   for (let i = 0; i < steps; i++) {
     const hit = stepBall(sim, dt, court, ball);
     const tPrev = t;
@@ -89,28 +138,55 @@ export function predictContact(
 
     if (hit.kind === 'net' || hit.kind === 'floor') return null;
     if (hit.kind === 'crossed') bounces = 0;
-    if (hit.kind === 'bounce' && hit.side === side) {
-      bounces++;
-      // Two bounces means the receiver already failed to return it.
-      if (bounces >= 2) return null;
-      // Bounced out: there is nothing left worth hitting.
-      if (!hit.inBounds) return null;
+    if (hit.kind === 'bounce') {
+      // The shuttle has reached the floor and the rally is over. Whatever the
+      // best contact along the way was, that is the one — there is no later.
+      if (!ball.bounces) return best.found?.hit ?? null;
+      if (hit.side === side) {
+        bounces++;
+        // Two bounces means the receiver already failed to return it.
+        if (bounces >= 2) return null;
+        // Bounced out: there is nothing left worth hitting.
+        if (!hit.inBounds) return null;
+      }
     }
 
     const z = sim.p[2];
     const y = sim.p[1];
     if (Math.sign(z) === side) {
       // Volley: crossing the body plane, in the air, at a reachable height.
+      // Bouncing sports only — a shuttle is handled entirely by the search
+      // below, which subsumes this case and places it better.
       if (
+        ball.bounces &&
         bounces === 0 &&
         !opts.mustBounce &&
         Math.abs(prev[2]) < bodyZ &&
         Math.abs(z) >= bodyZ &&
         y > surfaceAt(court, sim.p[0], z) + 0.22 &&
-        y < 2.2
+        y < params.reachHeight
       ) {
         const f = frac(Math.abs(prev[2]), Math.abs(z), bodyZ);
         return contact(tPrev, t, prev, sim, f, 'volley');
+      }
+
+      // Interception: no bounce is coming, so meet it on the way down — anywhere
+      // between the floor and full stretch overhead.
+      if (
+        !ball.bounces &&
+        sim.v[1] < 0 &&
+        y <= params.reachHeight &&
+        y > surfaceAt(court, sim.p[0], z) + 0.3
+      ) {
+        // `f = 1`: take the candidate where the shuttle actually IS at this step.
+        // The groundstroke branch below interpolates back to `contactY` because
+        // it models a ball met on the way down through a fixed height — do that
+        // here and every candidate above comfortable is snapped down to it, so
+        // the search can never return an overhead and the asymmetry above has
+        // nothing to choose between. Measured before this: zero contacts above
+        // shoulder height, p90 pinned to exactly contactY.
+        const chosen = consider(contact(tPrev, t, prev, sim, 1, 'intercept'));
+        if (chosen) return chosen;
       }
 
       // Groundstroke: the first moment after the bounce that the ball is both
@@ -129,7 +205,8 @@ export function predictContact(
 
       // Past the point of no return.
       if (Math.abs(z) > reachZ) {
-        if (bounces >= 1) {
+        if (!ball.bounces) return best.found?.hit ?? null;
+        if (bounces >= 1 && ball.bounces) {
           // A scrambling return right at the back fence. Still allow it.
           return contact(tPrev, t, prev, sim, 1, 'groundstroke');
         }
@@ -138,7 +215,20 @@ export function predictContact(
     }
     prev = [...sim.p] as Vec3;
   }
-  return null;
+  return best.found?.hit ?? null;
+}
+
+/**
+ * What a contact that is not at the comfortable height costs, in metres.
+ *
+ * Asymmetric, because height is. Reaching UP is how you attack: you take the
+ * shuttle early, above the net, and hit down through it. Reaching DOWN is how
+ * you get beaten. Scoring both the same is what makes a racket sport play like
+ * everyone has their arms tied to their sides — measured, badminton produced
+ * zero contacts above shoulder height, which is not badminton.
+ */
+export function heightCost(dy: number, highEase: number): number {
+  return dy > 0 ? dy * highEase : -dy;
 }
 
 /** Sub-tick crossing fraction, so `tIdeal` is not quantised to the tick rate. */

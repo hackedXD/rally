@@ -134,6 +134,22 @@ export type S2D =
       pairToken: string;
       /** Fully-formed controller URL for the QR code, token in the fragment. */
       pairUrl: string;
+      /**
+       * Opens this room on a second machine. Share it to play a human who is
+       * somewhere else: their display takes the other seat and pairs its own
+       * phone.
+       */
+      joinUrl: string;
+      /**
+       * The OTHER seat's phone link, offered to this display only while no second
+       * display has claimed that seat — which is what lets one screen host two
+       * phones sitting next to each other.
+       *
+       * Null the moment a friend's display joins. A pair token is single-use, so
+       * a code shown in two places at once fails on whichever scan arrives
+       * second, and that failure looks exactly like a broken QR.
+       */
+      otherPairUrl: string | null;
       sport: SportId;
       seats: SeatInfo[];
       sports: SportMeta[];

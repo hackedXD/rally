@@ -17,6 +17,7 @@ export const COURTS: Record<SportId, CourtSpec> = {
     nonVolleyZone: 2.13,
     surround: 3.2,
     tableHeight: 0,
+    standBehind: 0,
   },
   tabletennis: {
     length: 7.2,
@@ -25,6 +26,17 @@ export const COURTS: Record<SportId, CourtSpec> = {
     nonVolleyZone: 0,
     surround: 2.4,
     tableHeight: 0.76,
+    standBehind: 0.55,
+  },
+  badminton: {
+    length: 13.4,
+    width: 5.18,
+    netHeight: 1.524,
+    // The short service line, not a kitchen.
+    nonVolleyZone: 1.98,
+    surround: 3.0,
+    tableHeight: 0,
+    standBehind: 0,
   },
   bowling: {
     length: 18.29,
@@ -33,6 +45,7 @@ export const COURTS: Record<SportId, CourtSpec> = {
     nonVolleyZone: 0,
     surround: 1.2,
     tableHeight: 0,
+    standBehind: 0,
   },
 };
 

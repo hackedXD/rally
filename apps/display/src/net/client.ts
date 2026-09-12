@@ -35,6 +35,10 @@ export interface RoomView {
   seat: Seat;
   pairToken: string;
   pairUrl: string;
+  /** Opens this room on a friend's machine; they take the other seat. */
+  joinUrl: string;
+  /** The other seat's phone link while no second display has claimed it. */
+  otherPairUrl: string | null;
   sport: SportId;
   seats: SeatInfo[];
   sports: SportMeta[];
@@ -155,6 +159,8 @@ export class RallyClient {
           seat: msg.seat,
           pairToken: msg.pairToken,
           pairUrl: msg.pairUrl,
+          joinUrl: msg.joinUrl,
+          otherPairUrl: msg.otherPairUrl,
           sport: msg.sport,
           seats: msg.seats,
           sports: msg.sports,
@@ -209,6 +215,15 @@ export class RallyClient {
         return;
 
       case 'ERROR':
+        // A shared link outlives the room it points at. Rather than stranding the
+        // display with no room at all, open a fresh one and let them start over —
+        // the code in the address bar is a hint, not a requirement.
+        if (msg.code === 'NO_ROOM' && this.joinCode && !this.room) {
+          this.joinCode = null;
+          this.send({ t: 'ROOM_CREATE', sport: this.pendingSport });
+          this.handlers.onError(msg.code, `${msg.message} Opened a new room instead.`);
+          return;
+        }
         this.handlers.onError(msg.code, msg.message);
         return;
 
@@ -235,6 +250,19 @@ export class RallyClient {
 
   addBot(skill: number): void {
     this.send({ t: 'ADD_BOT', skill });
+  }
+
+  /**
+   * Move this display into someone else's room, on the live socket.
+   *
+   * `joinCode` is updated too, so a reconnect lands back in the friend's room
+   * rather than silently creating a fresh empty one.
+   */
+  joinRoom(code: string): void {
+    const room = code.trim().toUpperCase();
+    if (room.length !== 4) return;
+    this.joinCode = room;
+    this.send({ t: 'ROOM_JOIN', room });
   }
 
   start(): void {

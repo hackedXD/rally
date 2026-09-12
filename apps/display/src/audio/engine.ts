@@ -106,8 +106,40 @@ export class AudioEngine {
     }
     if (this.ctx.state !== 'running') {
       console.warn('[audio] context is', this.ctx.state, '— audio will be silent');
+      return false;
     }
-    return this.ctx.state === 'running';
+    // Anything that arrived before there was a context to decode into is still
+    // sitting here undecoded. That is the normal case in a two-phone match: the
+    // pairing happens entirely on the phones, the cold bank lands while this page
+    // has never been touched, and the gesture that unlocks audio comes later — or
+    // is the very first click anyone makes on it.
+    await this.decodePending();
+    return true;
+  }
+
+  /** Decode every stored cue that has bytes but no buffer yet. */
+  private async decodePending(): Promise<number> {
+    if (!this.ctx) return 0;
+    let decoded = 0;
+    for (const cue of this.cues.values()) {
+      if (!cue.audioB64 || this.buffers.has(cue.id)) continue;
+      if (await this.decode(cue)) decoded++;
+    }
+    if (decoded) console.info(`[audio] decoded ${decoded} cue(s) held back until unlock`);
+    return decoded;
+  }
+
+  private async decode(cue: PreloadedCue): Promise<boolean> {
+    if (!this.ctx) return false;
+    try {
+      const bytes = base64ToBytes(cue.audioB64);
+      const buffer = await this.ctx.decodeAudioData(bytes.buffer as ArrayBuffer);
+      this.buffers.set(cue.id, buffer);
+      return true;
+    } catch (err) {
+      console.warn('[audio] could not decode cue', cue.id, err);
+      return false;
+    }
   }
 
   setMuted(muted: boolean): void {
@@ -129,15 +161,10 @@ export class AudioEngine {
     let decoded = 0;
     for (const cue of cues) {
       this.cues.set(cue.id, cue);
+      // No context yet means no gesture yet. Keep the cue — `unlock` decodes
+      // whatever has piled up — but do not drop the bytes on the floor.
       if (!cue.audioB64 || this.buffers.has(cue.id) || !this.ctx) continue;
-      try {
-        const bytes = base64ToBytes(cue.audioB64);
-        const buffer = await this.ctx.decodeAudioData(bytes.buffer as ArrayBuffer);
-        this.buffers.set(cue.id, buffer);
-        decoded++;
-      } catch (err) {
-        console.warn('[audio] could not decode cue', cue.id, err);
-      }
+      if (await this.decode(cue)) decoded++;
     }
     return decoded;
   }
@@ -145,10 +172,22 @@ export class AudioEngine {
   // ── Playback ────────────────────────────────────────────────────────────────
 
   /**
-   * Interrupt policy: a higher-priority cue fades the current one out over 60 ms
-   * and takes over. Otherwise it queues, at most two deep, and any cue older than
-   * three seconds is dropped — commentary about a point two rallies ago is worse
-   * than silence.
+   * A line, once started, always finishes.
+   *
+   * This used to let a higher-priority cue fade the current one out over 60 ms
+   * and take over, which sounds reasonable and is the single worst thing the
+   * audio engine can do: the interesting lines are the high-priority ones, so
+   * the policy reliably cut off the commentary you most wanted to hear, and
+   * during a busy rally it cut off nearly everything. A half-spoken sentence
+   * reads as a bug in a way that a slightly late one never does.
+   *
+   * Nothing here interrupts any more — a cue either queues behind what is
+   * playing or is dropped before it starts. The server does its half by holding
+   * the next serve until the queue has drained (see `speakingUntil` in the
+   * commentary director), so lines land in the gaps rather than piling up.
+   *
+   * Priority still matters, just earlier: it decides who gets the queue slot
+   * when the queue is full, rather than who gets to talk over whom.
    */
   playCue(id: string, priority: number): void {
     if (this.muted) return;
@@ -156,15 +195,33 @@ export class AudioEngine {
     if (!cue) return;
 
     if (this.playing && performance.now() < this.playing.endsAt) {
-      if (priority > this.playing.priority) {
-        this.stopCurrent(0.06);
-      } else {
-        if (this.queue.length >= TUNING.commentary.queueMaxDepth) return;
-        this.queue.push({ id, priority, queuedAt: performance.now() });
-        return;
+      if (this.queue.length >= TUNING.commentary.queueMaxDepth) {
+        // Full. Displace the least important queued line rather than the one
+        // currently being spoken, and only for something that outranks it.
+        let worst = 0;
+        for (let i = 1; i < this.queue.length; i++) {
+          if (this.queue[i].priority < this.queue[worst].priority) worst = i;
+        }
+        if (priority <= this.queue[worst].priority) return;
+        this.queue.splice(worst, 1);
       }
+      this.queue.push({ id, priority, queuedAt: performance.now() });
+      return;
     }
     this.start(cue, priority);
+  }
+
+  /**
+   * How long until everything queued has been said, ms.
+   *
+   * The display's own view of the same number the server is tracking. Used to
+   * keep the subtitle up for as long as there is something still to say.
+   */
+  get speakingForMs(): number {
+    const now = performance.now();
+    let ms = this.playing ? Math.max(0, this.playing.endsAt - now) : 0;
+    for (const q of this.queue) ms += this.cues.get(q.id)?.durationMs ?? 0;
+    return ms;
   }
 
   private start(cue: PreloadedCue, priority: number): void {
@@ -220,9 +277,13 @@ export class AudioEngine {
     this.playing = null;
     this.duck(false);
 
-    // Drop stale cues before taking the next one.
+    // Drop stale cues before taking the next one — commentary about a point two
+    // rallies ago is worse than silence. A line that has already started is
+    // never dropped; this only ever discards things that never got to speak.
     const now = performance.now();
-    this.queue = this.queue.filter((q) => now - q.queuedAt < TUNING.commentary.queueStaleMs);
+    this.queue = this.queue.filter(
+      (q) => q.priority >= 3 || now - q.queuedAt < TUNING.commentary.queueStaleMs,
+    );
     const next = this.queue.shift();
     if (next) this.playCue(next.id, next.priority);
   }

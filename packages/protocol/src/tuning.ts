@@ -70,6 +70,29 @@ export interface Tuning {
     diffHeightWeight: number;
     /** Difficulty floor for a recovery swing after a whiff. */
     scrambleDifficulty: number;
+    /**
+     * For a ball that never bounces: how many metres of running a metre of
+     * awkward contact height is worth, when choosing where to meet it.
+     *
+     * 0 means the receiver stands still and takes the shuttle at whatever height
+     * it happens to reach them — a lot of scraping it off the floor, and a lot of
+     * net errors. Large means they always move to meet it at a perfect height,
+     * which collapses every rally onto the net. Only sports whose ball does not
+     * bounce consult it; the others have a bounce to wait for instead.
+     */
+    contactComfortBias: number;
+    /**
+     * What a metre of reach ABOVE the comfortable contact height costs, relative
+     * to a metre below it.
+     *
+     * Height is not symmetrical and treating it as though it were is what makes
+     * overheads feel dead. A ball above your shoulder is the one you want — you
+     * step under it and hit down. A ball at your ankles is the one that beats
+     * you. Below 1, the model agrees: contacts above comfortable are cheaper to
+     * move to and carry less difficulty, so a badminton overhead is the easy
+     * attacking shot it should be rather than the hardest thing on the court.
+     */
+    highReachEase: number;
   };
   shot: {
     driveMinSpeed: number;
@@ -156,6 +179,22 @@ export interface Tuning {
     recentQuipMemory: number;
     /** Rolling concrete facts handed to the writer. */
     factMemory: number;
+    /**
+     * Breath left after a line before play is allowed to resume, ms.
+     *
+     * A serve that lands on the commentator's last syllable reads as an
+     * interruption even though nothing was actually cut.
+     */
+    holdTailMs: number;
+    /**
+     * Longest the match will wait for the commentator, ms.
+     *
+     * The safety valve on the whole mechanism. Commentary holds the next serve
+     * so a line is never talked over, and without a ceiling a provider that
+     * hands back a forty-second monologue — or an estimate that is simply wrong
+     * — stops the game instead of narrating it.
+     */
+    holdPlayMaxMs: number;
   };
   feel: {
     /** Ball trail length, in samples. */
@@ -221,6 +260,8 @@ export const DEFAULT_TUNING: Tuning = {
     diffTravelWeight: 0.32,
     diffHeightWeight: 0.13,
     scrambleDifficulty: 0.6,
+    contactComfortBias: 2.2,
+    highReachEase: 0.25,
   },
   shot: {
     driveMinSpeed: 6.0,
@@ -262,8 +303,8 @@ export const DEFAULT_TUNING: Tuning = {
     speculativeInFlight: 3,
     speculativeTimeoutMs: 900,
     speculativeEveryNHits: 4,
-    queueMaxDepth: 2,
-    queueStaleMs: 3000,
+    queueMaxDepth: 4,
+    queueStaleMs: 9000,
     duckMusicDb: -10,
     duckSfxDb: -6,
     duckRampMs: 80,
@@ -272,6 +313,8 @@ export const DEFAULT_TUNING: Tuning = {
     liveTimeoutMs: 4000,
     recentQuipMemory: 8,
     factMemory: 12,
+    holdTailMs: 350,
+    holdPlayMaxMs: 7000,
   },
   feel: {
     trailLength: 12,

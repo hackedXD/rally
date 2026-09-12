@@ -56,7 +56,7 @@ export class VirtualController {
 
   constructor(
     private readonly url: string,
-    private readonly room: string,
+    readonly room: string,
     private readonly seat: Seat,
     private readonly token: string,
     private readonly name: string,

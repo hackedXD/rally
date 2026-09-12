@@ -32,6 +32,7 @@ import {
   type SportId,
 } from '@rally/protocol';
 import type { MatchStats, SportModule } from '@rally/sim';
+import { CONFIG } from '../config.js';
 import { log } from '../log.js';
 import { classifyCue, isDeadTimeTrigger } from './classify.js';
 import { CueStore } from './cuestore.js';
@@ -44,6 +45,7 @@ import {
   type ProviderSet,
   type SpecOutcome,
 } from './providers/index.js';
+import { estimateDurationMs } from './providers/voice.js';
 
 const logger = log.child('director');
 
@@ -97,6 +99,19 @@ export class CommentaryDirector {
   private store = new CueStore();
   private narrative: Narrative;
   private lastSpokeAt = -1e9;
+  /**
+   * Server time at which the display will have finished saying everything it has
+   * been asked to say.
+   *
+   * The display never interrupts a line now, so it plays what it is sent
+   * back-to-back and this tracks the end of that queue. The match reads it and
+   * holds the next serve, which is what makes a line land in a gap instead of
+   * under a serve. Kept here rather than reported back by the display because
+   * the server is the authority and there can be two displays: waiting on the
+   * slower of two clients would make the game's pace a function of whose laptop
+   * is busier.
+   */
+  private speakingUntil = -1e9;
   private spoken = 0;
   private charsUsed = 0;
   private budgetCapped = false;
@@ -209,8 +224,11 @@ export class CommentaryDirector {
       }
     }
 
-    // Batch synthesis: standard tiers cap concurrency around 15, so 8 at a time.
-    const batch = 8;
+    // Concurrency is enforced process-wide inside the voice provider — the limit
+    // belongs to the API key, not to this room. What the batch size controls here
+    // is how often progress is reported and how often a chunk of finished cues is
+    // pushed to the displays.
+    const batch = Math.max(1, CONFIG.elevenlabs.batchSize);
     const cues: PreloadedCue[] = [];
     for (let i = 0; i < jobs.length && !this.disposed; i += batch) {
       const slice = jobs.slice(i, i + batch);
@@ -233,15 +251,21 @@ export class CommentaryDirector {
           }),
         );
       }
+      // Push each chunk as it lands rather than the whole bank at the end. On a
+      // rate-limited key the bank can take longer than the lobby does, and a cue
+      // that arrives during the first rally is still worth having — whereas one
+      // held back until the last line is synthesised is worth nothing.
+      const chunk = [...(i === 0 ? preload : []), ...cues.slice(i)];
+      if (chunk.length) this.host.broadcast({ t: 'CUE_PRELOAD', cues: chunk });
       progress('Recording the lines…', 0.55 + 0.4 * ((i + batch) / Math.max(1, jobs.length)));
     }
 
     if (this.disposed) return;
 
-    // Push every clip before the match starts, fallbacks included. At event time
-    // the server then sends forty bytes against an already-decoded buffer.
-    const all = [...preload, ...cues];
-    if (all.length) this.host.broadcast({ t: 'CUE_PRELOAD', cues: all });
+    // The static fallbacks still need pushing if there was nothing else to send.
+    if (!jobs.length && preload.length) {
+      this.host.broadcast({ t: 'CUE_PRELOAD', cues: preload });
+    }
     logger.info(
       `cold bank ready: ${cues.length} written + ${preload.length} static, ` +
         `writer=${this.providers.writer.name} voice=${this.providers.voice.name}`,
@@ -285,11 +309,23 @@ export class CommentaryDirector {
    *
    * Never let two cues play at once, and never talk over yourself: a commentator
    * who fills every gap becomes noise inside thirty seconds.
+   *
+   * "At once" now means what it says. The display no longer interrupts a line to
+   * start a newer one, so dispatching while the last is still being spoken does
+   * not overlap them — it queues the new one and plays it late, describing a
+   * game state that has moved on. Better to stay quiet and let the moment pass.
+   *
+   * Priority 3 is the exception and must be: the point itself, and the end of
+   * the match. Those queue rather than being dropped, and the match holds the
+   * next serve until they have been said.
    */
   private react(e: GameEvent, cls: CueClass): void {
     if (this.muted) return;
     const now = this.host.now();
-    if (now - this.lastSpokeAt < TUNING.commentary.minGapMs && e.priority < 3) return;
+    if (e.priority < 3) {
+      if (now < this.speakingUntil) return;
+      if (now - this.lastSpokeAt < TUNING.commentary.minGapMs) return;
+    }
 
     const outcome = outcomeKeyFor(e);
     const spec = outcome ? this.store.takeOutcome(outcome, now) : null;
@@ -311,8 +347,53 @@ export class CommentaryDirector {
     this.store.consume(id);
     this.host.broadcast({ t: 'CUE_PLAY', id, priority });
     this.lastSpokeAt = this.host.now();
+    this.claimAir(this.store.durationOf(id) || estimateDurationMs(text));
     this.spoken++;
     this.narrative.spoke(text);
+  }
+
+  /**
+   * Book `ms` of speaking time, starting when the queue currently empties.
+   *
+   * Appends rather than overwrites, because the display plays queued lines
+   * back-to-back: two cues dispatched in the same tick occupy the sum of their
+   * durations, not the longer of them.
+   */
+  private claimAir(ms: number): void {
+    const now = this.host.now();
+    const from = Math.max(now, this.speakingUntil);
+    /*
+     * The cap is applied HERE, when the claim is made, and is therefore an
+     * absolute deadline.
+     *
+     * Capping at read time instead — `min(speakingUntil, now + max)` — looks
+     * equivalent and is a deadlock. Once enough lines are booked to push past
+     * the ceiling, that expression returns a time that is always `max` ahead of
+     * whenever you ask, so the deadline slides forward forever, the point phase
+     * never ends, and the match never serves again. Both full-match tests hung
+     * on exactly that.
+     */
+    this.speakingUntil = Math.min(
+      from + Math.max(0, ms) + TUNING.commentary.holdTailMs,
+      now + TUNING.commentary.holdPlayMaxMs,
+    );
+  }
+
+  /**
+   * Server time until which play should wait for the commentator.
+   *
+   * Already bounded by `claimAir`, so this is a plain read: a bad duration
+   * estimate or a provider that returns a monologue slows the game down by at
+   * most `holdPlayMaxMs`, and cannot stop it.
+   */
+  airtimeUntil(): Millis {
+    return this.muted ? this.host.now() : this.speakingUntil;
+  }
+
+  /** How long to wait for the current line to finish, at least `minMs`. */
+  private msUntilClear(minMs: number): number {
+    const remaining = this.speakingUntil - this.host.now();
+    return Math.max(minMs, Math.min(remaining, TUNING.commentary.holdPlayMaxMs));
   }
 
   // ── Layer 1: speculative ────────────────────────────────────────────────────
@@ -398,8 +479,17 @@ export class CommentaryDirector {
 
     this.liveInFlight = true;
     try {
-      // Give the cached reaction its moment before talking again.
-      await sleep(Math.min(1400, TUNING.match.pointPauseMs * 0.45));
+      /*
+       * Wait for the airwaves, not for a fixed guess at them.
+       *
+       * This used to sleep a flat 1400 ms to "give the cached reaction its
+       * moment". A spoken reaction is two seconds or more, so the live layer —
+       * whose entire job is filling silence — reliably started talking over the
+       * line it was supposed to be following. It was the last thing still
+       * cutting commentary off after the display stopped interrupting, and it
+       * bypassed the arbitration in `react` entirely by calling `play` direct.
+       */
+      await sleep(this.msUntilClear(Math.min(1400, TUNING.match.pointPauseMs * 0.45)));
       if (this.disposed || this.muted) return;
 
       const ctx: LineContext = {
@@ -445,6 +535,10 @@ export class CommentaryDirector {
         { seat: subjectOf(e) },
       );
       if (this.disposed) return;
+      // Generating took time, and somebody may have started talking during it.
+      // The cue stays in the store unconsumed, so `react` can still use it later
+      // rather than the work being thrown away.
+      if (this.host.now() < this.speakingUntil) return;
       this.host.broadcast({ t: 'CUE_PRELOAD', cues: [cue] });
       this.play(cue.id, 2, r.text);
     } catch (err) {
@@ -456,6 +550,8 @@ export class CommentaryDirector {
 
   /** Pipe the text stream into the voice socket and the audio out as frames. */
   private async streamLive(ctx: LineContext, e: GameEvent): Promise<boolean> {
+    // Same rule as every other layer: never start on top of a line in progress.
+    if (this.host.now() < this.speakingUntil) return false;
     const textStream = this.providers.writer.liveStream?.(ctx);
     if (!textStream) return false;
 
@@ -483,6 +579,9 @@ export class CommentaryDirector {
           });
           sentAny = true;
           this.lastSpokeAt = this.host.now();
+          // Provisional: the stream has started and the length is not yet known.
+          // Corrected from the real transcript once it ends.
+          this.claimAir(1200);
         }
         this.host.broadcastAudio(id, bytes);
       }
@@ -497,6 +596,10 @@ export class CommentaryDirector {
       this.narrative.claim(r.text);
       this.narrative.spoke(r.text);
       this.charsUsed += r.text.length;
+      // The provisional 1200 ms booked at CUE_STREAM_BEGIN was a guess made
+      // before a single word existed. Now the line is known, book the rest.
+      const real = estimateDurationMs(r.text);
+      if (real > 1200) this.claimAir(real - 1200);
     }
     this.host.broadcast({ t: 'CUE_STREAM_END', id });
     this.spoken++;
@@ -536,6 +639,7 @@ export class CommentaryDirector {
     this.narrative.reset();
     this.providers.offline.reset();
     this.lastSpokeAt = -1e9;
+    this.speakingUntil = -1e9;
     this.spoken = 0;
     this.charsUsed = 0;
     this.budgetCapped = false;

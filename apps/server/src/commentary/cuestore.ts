@@ -138,6 +138,11 @@ export class CueStore {
     if (s) s.consumed = true;
   }
 
+  /** How long this cue takes to say, ms. 0 if it is not a cue we know. */
+  durationOf(id: string): number {
+    return this.byId.get(id)?.cue.durationMs ?? 0;
+  }
+
   has(cls: CueClass, now: Millis): boolean {
     const ids = this.byClass.get(cls);
     if (!ids) return false;

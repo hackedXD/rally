@@ -28,6 +28,12 @@ export interface SimParams {
   paceMax: number;
   /** How far past the baseline a player can still reach, metres. */
   reachDepth: number;
+  /** Highest the ball can be met, metres above the floor. */
+  reachHeight: number;
+  /** Metres of running a metre of awkward contact height is worth. */
+  contactComfortBias: number;
+  /** What reach above the comfortable height costs, relative to below it. */
+  highReachEase: number;
   /** Global flight scale composed with the sport's own. */
   flightScale: number;
   minReturn: number;
@@ -45,6 +51,9 @@ export function resolveParams(sport: SportModule): SimParams {
     paceMin: s.paceMin,
     paceMax: s.paceMax,
     reachDepth: s.reachDepth,
+    reachHeight: s.reachHeight,
+    contactComfortBias: TUNING.strike.contactComfortBias,
+    highReachEase: TUNING.strike.highReachEase,
     flightScale: TUNING.shot.flightScale * s.flightScale,
     minReturn: s.minReturn,
     maxReturn: s.maxReturn,

@@ -1,0 +1,56 @@
+# Rally on one box: the server, and Caddy in front of it for TLS.
+#
+# Caddy is not decoration. iOS hands out motion sensors only over HTTPS, so
+# without a real certificate a phone loads the page and then refuses to be a
+# paddle — and `reverse_proxy` sets `X-Forwarded-Proto`, which is the single
+# header the server uses to decide whether the QR code it draws says `https`.
+#
+#   docker compose up -d --build
+#   docker compose logs -f rally
+
+name: rally
+
+services:
+  rally:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Keys and RALLY_DOMAIN both live here. It is never rsynced from a laptop —
+    # see deploy.sh — so the copy on the server is the only copy.
+    env_file: [.env]
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8787"
+      RALLY_SERVE_STATIC: "1"
+    # Not `ports`. The server is reachable only through Caddy, so there is no
+    # plain-HTTP way in that bypasses the certificate.
+    expose: ["8787"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 15s
+      timeout: 3s
+      # The listener answers a moment before the tick loop starts.
+      start_period: 20s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      RALLY_DOMAIN: ${RALLY_DOMAIN:?set RALLY_DOMAIN in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates live in a named volume. Losing it means re-issuing on every
+      # restart, which is a quick way to meet Let's Encrypt's rate limits.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - rally
+
+volumes:
+  caddy_data:
+  caddy_config:

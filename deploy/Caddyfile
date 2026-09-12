@@ -1,0 +1,19 @@
+# Automatic TLS from Let's Encrypt, renewed without being asked.
+#
+# Caddy upgrades WebSockets through `reverse_proxy` with no extra configuration
+# and applies no read timeout to them, which matters here: a Rally connection is
+# held open for the length of a match, not the length of a request.
+
+{$RALLY_DOMAIN} {
+	encode zstd gzip
+
+	# Sets X-Forwarded-Proto and X-Forwarded-Host. The server never guesses
+	# `https` from a hostname — it does not terminate TLS, so a guess would hand
+	# out a QR code that cannot connect — and these headers are how it knows.
+	reverse_proxy rally:8787
+
+	log {
+		output stdout
+		format console
+	}
+}

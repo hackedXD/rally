@@ -25,7 +25,39 @@ export interface CourtLook {
 export const BALL_RADIUS: Record<SportId, number> = {
   pickleball: 0.037,
   tabletennis: 0.05,
+  badminton: 0.034,
   bowling: 0.108,
+};
+
+/**
+ * What the player is holding, per sport. Swing style made visible.
+ *
+ * A badminton racket is the giveaway silhouette: a light oval head on a long
+ * shaft, held at arm's length and met above the head. A pickleball paddle is
+ * short, thick and solid, and swung from the waist. Rendering both as the same
+ * disc on a stub would throw away the most legible difference between the two
+ * sports on screen.
+ */
+export interface RacketLook {
+  /** Head radius, metres. */
+  headRadius: number;
+  /** Vertical stretch of the head. 1 is a round paddle; above 1 is an oval. */
+  headOval: number;
+  /** Frame thickness, metres. */
+  thickness: number;
+  /** Shaft and handle length, metres. */
+  shaft: number;
+  /** Shoulder to racket centre. A badminton racket reaches a long way. */
+  armLen: number;
+  /** A strung frame reads as an open face; a paddle reads as a solid one. */
+  strung: boolean;
+}
+
+export const RACKETS: Record<SportId, RacketLook> = {
+  pickleball: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
+  tabletennis: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
+  badminton: { headRadius: 0.13, headOval: 1.14, thickness: 0.011, shaft: 0.34, armLen: 0.95, strung: true },
+  bowling: { headRadius: 0.115, headOval: 1, thickness: 0.022, shaft: 0.13, armLen: 0.62, strung: false },
 };
 
 export const LOOKS: Record<SportId, CourtLook> = {
@@ -37,11 +69,21 @@ export const LOOKS: Record<SportId, CourtLook> = {
     accent: '#4ade80',
   },
   tabletennis: {
-    surface: '#0f3f63',
-    surfaceEdge: '#0b3353',
+    surface: '#15527d',
+    surfaceEdge: '#0e3d61',
     line: '#ffffff',
-    surround: '#0a1422',
+    // Light enough that the far half of the table does not disappear into it.
+    surround: '#111f33',
     accent: '#38bdf8',
+  },
+  badminton: {
+    // Tournament mats are green or blue; green keeps it instantly distinct from
+    // the two blue courts.
+    surface: '#1f6b4a',
+    surfaceEdge: '#17553b',
+    line: '#f6fff8',
+    surround: '#0f2a20',
+    accent: '#fbbf24',
   },
   bowling: {
     surface: '#8a5a2b',
@@ -110,6 +152,34 @@ export function makeCourtTexture(court: CourtSpec, look: CourtLook, sport: Sport
     g.moveTo(w / 2, h);
     g.lineTo(w / 2, h / 2 + kz);
     g.stroke();
+  } else if (sport === 'badminton') {
+    // Short service lines, the centre line splitting each service court, and the
+    // doubles long service line just inside the back boundary. Between them
+    // these are what make a badminton court unmistakable at a glance.
+    const shortLine = court.nonVolleyZone * pxPerM;
+    for (const y of [h / 2 - shortLine, h / 2 + shortLine]) {
+      g.beginPath();
+      g.moveTo(0, y);
+      g.lineTo(w, y);
+      g.stroke();
+    }
+    // Doubles long service line, 0.76 m in from each back boundary.
+    const longLine = 0.76 * pxPerM;
+    g.lineWidth = Math.max(2, lw * 0.7);
+    for (const y of [longLine, h - longLine]) {
+      g.beginPath();
+      g.moveTo(0, y);
+      g.lineTo(w, y);
+      g.stroke();
+    }
+    // Centre line, from each short service line to the back.
+    g.lineWidth = lw;
+    g.beginPath();
+    g.moveTo(w / 2, 0);
+    g.lineTo(w / 2, h / 2 - shortLine);
+    g.moveTo(w / 2, h);
+    g.lineTo(w / 2, h / 2 + shortLine);
+    g.stroke();
   } else if (sport === 'tabletennis') {
     // A single centre line down the length, as a table has.
     g.lineWidth = Math.max(2, lw * 0.6);
@@ -173,18 +243,26 @@ export function cameraFor(
 } {
   const sign = seat === 0 ? -1 : 1;
   const half = court.length / 2;
+
   // A 35 degree vertical field of view frames the court on a widescreen laptop.
   // On a narrower window the court runs off the sides, so pull back rather than
   // widening the lens — widening it distorts the depth cue the ball shadow
   // depends on.
   const pullback = Math.max(1, Math.sqrt(1.55 / Math.max(0.6, aspect)));
+
+  // Framed from the deepest a player can stand, not from the lines. Behind a
+  // table that is well past the edge, and framing on the lines alone crops your
+  // own player off the bottom of the screen — which is the half of the court you
+  // least want to lose, because it is the one you are playing from.
+  const nearExtent = half + court.standBehind + 0.8;
+  const back = (nearExtent * 1.95 + 4.2) * pullback;
+  const height = court.tableHeight + nearExtent * 0.52 + 2.6 + (pullback - 1) * 1.5;
+
   return {
-    position: [
-      0,
-      (court.tableHeight + 3.9 + half * 0.14) * (0.85 + pullback * 0.18),
-      sign * (half + 6.1) * pullback,
-    ],
-    target: [0, court.tableHeight + 0.85, sign * -half * 0.1],
+    position: [0, height, sign * back],
+    // Aimed a little past the net so the far court, where the ball is coming
+    // from, sits in the middle of the frame rather than the near baseline.
+    target: [0, court.tableHeight + 0.8, sign * -half * 0.15],
     fov: 35,
   };
 }

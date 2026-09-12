@@ -41,6 +41,8 @@ class Client {
   readonly snapshots: Snapshot[] = [];
   readonly cues = new Map<string, PreloadedCue>();
   readonly played: string[] = [];
+  /** Dispatch order with arrival time and priority, for the overlap check. */
+  readonly playedAt: { id: string; at: number; priority: number }[] = [];
   readonly events: string[] = [];
   readonly invalid: string[] = [];
   clock = new ClockSync(() => performance.now());
@@ -83,6 +85,7 @@ class Client {
           break;
         case 'CUE_PLAY':
           this.played.push(msg.id);
+          this.playedAt.push({ id: msg.id, at: Date.now(), priority: msg.priority });
           break;
         case 'EVENT':
           this.events.push(msg.e.type);
@@ -121,6 +124,14 @@ class Client {
       if (Date.now() > deadline) throw new Error(`timed out waiting for ${type}`);
       await sleep(25);
     }
+  }
+
+  /** The most recent message of a type. ROOM_STATE is re-sent on every change. */
+  latest<T extends (S2D | S2C)['t']>(type: T): Extract<S2D | S2C, { t: T }> | undefined {
+    for (let i = this.inbox.length - 1; i >= 0; i--) {
+      if (this.inbox[i].t === type) return this.inbox[i] as Extract<S2D | S2C, { t: T }>;
+    }
+    return undefined;
   }
 
   async waitUntil(pred: () => boolean, timeoutMs = 8000, what = 'condition'): Promise<void> {
@@ -205,7 +216,18 @@ describe('server endpoints', () => {
     const json = (await fetch(`${BASE}/api/sports`).then((r) => r.json())) as {
       sports: { id: string; playable: boolean }[];
     };
-    expect(json.sports.map((s) => s.id)).toEqual(['pickleball', 'tabletennis', 'bowling']);
+    // Order matters: it is the order the lobby lists them in, stub last.
+    expect(json.sports.map((s) => s.id)).toEqual([
+      'pickleball',
+      'tabletennis',
+      'badminton',
+      'bowling',
+    ]);
+    expect(json.sports.filter((s) => s.playable).map((s) => s.id)).toEqual([
+      'pickleball',
+      'tabletennis',
+      'badminton',
+    ]);
     expect(json.sports.find((s) => s.id === 'bowling')!.playable).toBe(false);
   });
 });
@@ -379,6 +401,28 @@ describe('pairing and a full match', () => {
     // Commentary fired, and never played the same cue twice.
     expect(display.played.length).toBeGreaterThan(3);
     expect(new Set(display.played).size).toBe(display.played.length);
+
+    /*
+     * And no line was ever talked over.
+     *
+     * The display does not interrupt a cue once it has started, so a second cue
+     * dispatched mid-line does not overlap it — it queues and plays late. The
+     * director therefore stays quiet until the previous line is done, and the
+     * match holds the next serve so that staying quiet does not mean missing the
+     * moment. Priority 3 is the deliberate exception: the point itself must be
+     * said, so it is allowed to queue.
+     *
+     * Measured on arrival time at a real client over a real socket.
+     */
+    const overlaps = display.playedAt.filter((cue, i) => {
+      if (i === 0 || cue.priority >= 3) return false;
+      const prev = display.playedAt[i - 1];
+      const prevMs = display.cues.get(prev.id)?.durationMs ?? 0;
+      return cue.at - prev.at < prevMs;
+    });
+    expect(
+      overlaps.map((c) => display.cues.get(c.id)?.text ?? c.id),
+    ).toEqual([]);
     const spokenTexts = display.played
       .map((id) => display.cues.get(id)?.text)
       .filter((t): t is string => Boolean(t));
@@ -482,6 +526,43 @@ describe('the real phone client', () => {
   }, 60_000);
 });
 
+describe('match completion', () => {
+  /**
+   * Regression: the end-of-match guard read only the simulation's phase, which
+   * stays 'gameover' forever — so MATCH_END went out sixty times a second, along
+   * with a controller cue and a replay write each time. The visible symptom was
+   * that "Back to lobby" did nothing: the display navigated away and was slammed
+   * back onto the end card 16 ms later.
+   */
+  it('announces the end of the match exactly once', async () => {
+    const display = new Client('display');
+    await display.open();
+    display.send({ t: 'HELLO', role: 'display' });
+    await display.waitFor('WELCOME');
+    display.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
+    await display.waitFor('ROOM_STATE');
+
+    // A mismatch, so the match resolves quickly.
+    display.send({ t: 'ADD_BOT', skill: 0.95 });
+    display.send({ t: 'ADD_BOT', skill: 0.05 });
+    display.send({ t: 'START' });
+
+    await display.waitFor('MATCH_END', 200_000);
+    // Keep listening well past the point where a per-tick broadcast would have
+    // produced hundreds.
+    await sleep(3000);
+
+    const ends = display.inbox.filter((m) => m.t === 'MATCH_END');
+    expect(ends.length).toBe(1);
+
+    // The room stops ticking too, rather than spinning on a finished match.
+    const before = display.snapshots.length;
+    await sleep(600);
+    expect(display.snapshots.length).toBe(before);
+    display.close();
+  }, 240_000);
+});
+
 describe('protocol hardening', () => {
   it('drops garbage without dropping the connection', async () => {
     const c = new Client('display');
@@ -546,7 +627,220 @@ describe('protocol hardening', () => {
     expect(bState.pairUrl).toContain('s=1');
     expect(bState.pairToken).not.toBe(state.pairToken);
 
+    // Neither screen advertises the other's seat any more. A pair token is
+    // single-use, so a code on two screens at once fails whichever scan is
+    // second — and that reads as a broken QR, not as a taken seat.
+    expect(bState.otherPairUrl).toBeNull();
+    await a.waitUntil(
+      () => a.latest('ROOM_STATE')?.otherPairUrl === null,
+      4000,
+      'seat 1 claimed by its own display',
+    );
+
     a.close();
     b.close();
   }, 20_000);
+});
+
+describe('playing another human', () => {
+  it('hands the invite link and the second seat to a lone display', async () => {
+    const a = new Client('display');
+    await a.open();
+    a.send({ t: 'HELLO', role: 'display' });
+    await a.waitFor('WELCOME');
+    a.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
+    const state = await a.waitFor('ROOM_STATE');
+
+    // The invite opens a second display on the same origin that served this one.
+    expect(new URL(state.joinUrl).searchParams.get('room')).toBe(state.room);
+
+    // Nobody else is on seat 1, so this screen may show its code too: two phones,
+    // one court.
+    expect(state.otherPairUrl).not.toBeNull();
+    const frag = new URLSearchParams(state.otherPairUrl!.split('#')[1]);
+    expect(frag.get('s')).toBe('1');
+    expect(frag.get('r')).toBe(state.room);
+    expect(frag.get('t')).not.toBe(state.pairToken);
+
+    a.close();
+  }, 20_000);
+
+  it('plays two phones against each other on one screen', async () => {
+    const display = new Client('display');
+    await display.open();
+    display.send({ t: 'HELLO', role: 'display' });
+    await display.waitFor('WELCOME');
+    display.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
+    const state = await display.waitFor('ROOM_STATE');
+
+    const phones = await Promise.all(
+      [state.pairUrl, state.otherPairUrl!].map(async (url, seat) => {
+        const frag = new URLSearchParams(url.split('#')[1]);
+        const phone = new Client('controller');
+        await phone.open();
+        phone.send({
+          t: 'HELLO',
+          role: 'controller',
+          room: frag.get('r'),
+          seat,
+          pairToken: frag.get('t'),
+        });
+        await phone.waitFor('PAIRED');
+        return phone;
+      }),
+    );
+
+    phones[0].send({ t: 'CALIBRATED', yawOffset: 0 });
+    phones[0].send({ t: 'READY', name: 'Ada' });
+    phones[1].send({ t: 'CALIBRATED', yawOffset: 0 });
+    phones[1].send({ t: 'READY', name: 'Bo' });
+
+    // Both seats ready is the start signal; nobody has to press anything.
+    const started = await display.waitFor('MATCH_START', 20_000);
+    expect(started.names).toEqual(['Ada', 'Bo']);
+
+    await display.waitUntil(() => display.snapshots.length > 3, 8000, 'snapshots');
+    const players = display.snapshots.at(-1)!.players;
+    expect(players.map((p) => p.bot)).toEqual([false, false]);
+    expect(players.map((p) => p.name)).toEqual(['Ada', 'Bo']);
+
+    for (const p of phones) p.close();
+    display.close();
+  }, 60_000);
+
+  it('seats the first bot opposite you, and the second one in your own seat', async () => {
+    // The order matters in both directions. First press must not bot the seat you
+    // are sitting in while the far side is empty; second press must still be able
+    // to, because two presses is how you set two bots playing each other — which
+    // is also how the long-running match tests drive a game to its end.
+    const display = new Client('display');
+    await display.open();
+    display.send({ t: 'HELLO', role: 'display' });
+    await display.waitFor('WELCOME');
+    display.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
+    await display.waitFor('ROOM_STATE');
+
+    display.send({ t: 'ADD_BOT', skill: 0.9 });
+    await display.waitUntil(
+      () => display.latest('ROOM_STATE')?.seats[1].bot === true,
+      4000,
+      'a bot on seat 2',
+    );
+    expect(display.latest('ROOM_STATE')!.seats[0].bot).toBe(false);
+
+    display.send({ t: 'ADD_BOT', skill: 0.1 });
+    await display.waitUntil(
+      () => display.latest('ROOM_STATE')?.seats[0].bot === true,
+      4000,
+      'a bot on seat 1 too',
+    );
+    expect(display.inbox.some((m) => m.t === 'ERROR')).toBe(false);
+
+    display.close();
+  }, 20_000);
+
+  it('keeps two players apart when they arrive with the same name', async () => {
+    // Trivially reachable: the display generates a name and remembers it in
+    // localStorage, so two browser windows on one machine both turn up as it.
+    // The commentator speaks "{player}" and "{opponent}" out loud, and "Ada takes
+    // it from Ada" is not a sentence about a match.
+    const display = new Client('display');
+    await display.open();
+    display.send({ t: 'HELLO', role: 'display' });
+    await display.waitFor('WELCOME');
+    display.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
+    const state = await display.waitFor('ROOM_STATE');
+
+    const phones = await Promise.all(
+      [state.pairUrl, state.otherPairUrl!].map(async (url, seat) => {
+        const frag = new URLSearchParams(url.split('#')[1]);
+        const phone = new Client('controller');
+        await phone.open();
+        phone.send({
+          t: 'HELLO',
+          role: 'controller',
+          room: frag.get('r'),
+          seat,
+          pairToken: frag.get('t'),
+        });
+        await phone.waitFor('PAIRED');
+        return phone;
+      }),
+    );
+
+    // One at a time: whoever readies first keeps the plain name, and a test that
+    // races the two has no business asserting which.
+    phones[0].send({ t: 'READY', name: 'Ada' });
+    await sleep(250);
+    phones[1].send({ t: 'READY', name: 'ada' });
+
+    const started = await display.waitFor('MATCH_START', 20_000);
+    expect(started.names[0]).toBe('Ada');
+    // Case-insensitively the same name, so it is still disambiguated: read out
+    // loud, "ada" and "Ada" are the same word.
+    expect(started.names[1].toLowerCase()).not.toBe('ada');
+    expect(started.names[1].toLowerCase()).toContain('ada');
+
+    for (const p of phones) p.close();
+    display.close();
+  }, 60_000);
+
+  it('refuses to bot over an opponent who is still connecting', async () => {
+    const a = new Client('display');
+    const b = new Client('display');
+    await Promise.all([a.open(), b.open()]);
+    a.send({ t: 'HELLO', role: 'display' });
+    await a.waitFor('WELCOME');
+    a.send({ t: 'ROOM_CREATE', sport: 'pickleball' });
+    const state = await a.waitFor('ROOM_STATE');
+
+    b.send({ t: 'HELLO', role: 'display' });
+    await b.waitFor('WELCOME');
+    b.send({ t: 'ROOM_JOIN', room: state.room });
+    const bState = await b.waitFor('ROOM_STATE');
+    expect(bState.seat).toBe(1);
+
+    // Host pairs a phone and gets impatient.
+    const aFrag = new URLSearchParams(state.pairUrl.split('#')[1]);
+    const aPhone = new Client('controller');
+    await aPhone.open();
+    aPhone.send({
+      t: 'HELLO',
+      role: 'controller',
+      room: state.room,
+      seat: 0,
+      pairToken: aFrag.get('t'),
+    });
+    await aPhone.waitFor('PAIRED');
+    aPhone.send({ t: 'READY', name: 'Ada' });
+
+    a.send({ t: 'START' });
+    const err = await a.waitFor('ERROR');
+    expect(err.code).toBe('SEAT_NOT_READY');
+    // Emphatically not started: the whole point is that seat 1 is a person.
+    await sleep(600);
+    expect(a.inbox.some((m) => m.t === 'MATCH_START')).toBe(false);
+
+    // The friend finishes pairing, and the match starts on its own.
+    const bFrag = new URLSearchParams(bState.pairUrl.split('#')[1]);
+    const bPhone = new Client('controller');
+    await bPhone.open();
+    bPhone.send({
+      t: 'HELLO',
+      role: 'controller',
+      room: state.room,
+      seat: 1,
+      pairToken: bFrag.get('t'),
+    });
+    await bPhone.waitFor('PAIRED');
+    bPhone.send({ t: 'READY', name: 'Bo' });
+
+    const started = await b.waitFor('MATCH_START', 20_000);
+    expect(started.names).toEqual(['Ada', 'Bo']);
+
+    aPhone.close();
+    bPhone.close();
+    a.close();
+    b.close();
+  }, 60_000);
 });

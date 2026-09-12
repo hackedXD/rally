@@ -4,11 +4,22 @@
  * A judge walks up, scans a QR code, and is swinging within thirty seconds — so
  * the QR code is the biggest thing on the screen and everything else is one
  * click.
+ *
+ * There are three ways to end up with an opponent, and all three live here:
+ *
+ *   - a bot, one click;
+ *   - a second phone scanning this same screen (two people, one room);
+ *   - a friend somewhere else opening the invite link on their own screen.
+ *
+ * The second seat's QR code is shown only while no other display has claimed
+ * that seat. Pair tokens are single-use, so the same code advertised in two
+ * places fails on whichever scan arrives second — and a QR that "just doesn't
+ * work" is the least debuggable failure there is.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import type { SportId } from '@rally/protocol';
+import { ROOM_ALPHABET, lane, type SportId } from '@rally/protocol';
 import type { RallyClient } from '../net/client.js';
 import { useGame } from '../store/useGame.js';
 
@@ -23,22 +34,20 @@ function insecure(url: string): boolean {
   return url.startsWith('http://');
 }
 
-export function Lobby({ client, onStart, onPlayHere }: Props) {
-  const room = useGame((s) => s.room);
-  const sports = useGame((s) => s.sports);
-  const status = useGame((s) => s.lobbyStatus);
-  const screen = useGame((s) => s.screen);
-  const conn = useGame((s) => s.conn);
+/**
+ * A QR code that stays square.
+ *
+ * The bitmap is rendered well above its CSS box: a retina panel and a phone
+ * camera both want the extra resolution, and the wrapper does the sizing.
+ */
+function Qr({ url, size = 512 }: { url: string; size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!room?.pairUrl || !canvas) return;
-    void QRCode.toCanvas(canvas, room.pairUrl, {
-      // Bitmap resolution, not display size: the canvas is laid out by CSS, and
-      // rendering well above the CSS box keeps the code crisp on a retina panel
-      // and easy for a phone camera to lock onto.
-      width: 512,
+    if (!url || !canvas) return;
+    void QRCode.toCanvas(canvas, url, {
+      width: size,
       margin: 1,
       color: { dark: '#06090f', light: '#ffffff' },
       errorCorrectionLevel: 'M',
@@ -50,11 +59,59 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
       canvas.style.removeProperty('width');
       canvas.style.removeProperty('height');
     });
-  }, [room?.pairUrl]);
+  }, [url, size]);
+
+  return (
+    <div className="qr-frame">
+      <canvas ref={canvasRef} />
+    </div>
+  );
+}
+
+/** Copies to the clipboard and says so, because a silent copy looks broken. */
+function CopyButton({ text, label = 'Copy invite link' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 1600);
+    return () => clearTimeout(id);
+  }, [copied]);
+
+  return (
+    <button
+      className={copied ? 'copied' : ''}
+      onClick={() => {
+        void navigator.clipboard
+          ?.writeText(text)
+          .then(() => setCopied(true))
+          .catch(() => setCopied(false));
+      }}
+    >
+      {copied ? 'Copied' : label}
+    </button>
+  );
+}
+
+export function Lobby({ client, onStart, onPlayHere }: Props) {
+  const room = useGame((s) => s.room);
+  const sports = useGame((s) => s.sports);
+  const status = useGame((s) => s.lobbyStatus);
+  const screen = useGame((s) => s.screen);
+  const conn = useGame((s) => s.conn);
+  const [joinCode, setJoinCode] = useState('');
 
   const preparing = screen === 'preparing';
   const seats = room?.seats ?? [];
   const paired = seats.filter((s) => s.paired).length;
+
+  const mySeat = lane(room?.seat ?? 0);
+  const mine = seats[mySeat] ?? null;
+  const theirs = seats[1 - mySeat] ?? null;
+  /** Their display is here (so no QR for us to show) but no phone on it yet. */
+  const waitingOnThem = Boolean(room && !room.otherPairUrl && theirs && !theirs.paired);
+  const humanOpponent = Boolean(theirs?.paired && !theirs.bot);
+  const startLabel = startLabelFor(preparing, waitingOnThem, Boolean(mine?.paired), Boolean(theirs?.paired));
 
   return (
     <div className="lobby">
@@ -73,10 +130,16 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
               {sports.map((s) => (
                 <button
                   key={s.id}
-                  className={`sport-btn${room?.sport === s.id ? ' on' : ''}`}
+                  className={`sport-btn${room?.sport === s.id ? ' on' : ''}${s.playable ? '' : ' stub'}`}
                   disabled={!s.playable || preparing || !room?.host}
                   onClick={() => client.selectSport(s.id as SportId)}
-                  title={s.playable ? s.tagline : 'Interface stub — see sports/bowling.ts'}
+                  title={
+                    !s.playable
+                      ? 'Interface stub — see sports/bowling.ts'
+                      : room?.host
+                        ? s.tagline
+                        : 'The player who opened the room picks the sport'
+                  }
                 >
                   <span className="t">{s.displayName}</span>
                   <span className="d">{s.tagline}</span>
@@ -86,20 +149,15 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
 
             <div className="seats">
               {seats.map((s) => (
-                <div className="seat" key={s.seat}>
+                <div className={`seat${lane(s.seat) === mySeat ? ' you' : ''}`} key={s.seat}>
                   <div className="idx">{s.seat + 1}</div>
                   <div className="who">
                     <div className="n">{s.name ?? (s.paired ? 'Connecting…' : 'Empty seat')}</div>
                     <div className="s">
-                      {s.bot
-                        ? 'Built-in opponent'
-                        : s.paired
-                          ? s.connected
-                            ? 'Phone connected'
-                            : 'Phone dropped — waiting'
-                          : 'Scan the QR code, or play from this machine'}
+                      {seatStatus(s, lane(s.seat) === mySeat, Boolean(room?.otherPairUrl))}
                     </div>
                   </div>
+                  {lane(s.seat) === mySeat && <div className="badge you">you</div>}
                   {s.bot && <div className="badge bot">bot</div>}
                   {s.ready && !s.bot && <div className="badge ready">ready</div>}
                 </div>
@@ -107,14 +165,19 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
             </div>
 
             <div className="actions">
-              <button className="primary" onClick={onStart} disabled={preparing || paired === 0}>
-                {preparing ? 'Preparing…' : 'Start match'}
+              {/*
+                * Enabled even with nothing paired: the server fills empty seats
+                * with bots, so this always starts something, and the label says
+                * exactly what that something is.
+                */}
+              <button className="primary" onClick={onStart} disabled={preparing || waitingOnThem}>
+                {startLabel}
               </button>
               <button onClick={onPlayHere} disabled={preparing}>
                 Play here (mouse)
               </button>
-              <button onClick={() => client.addBot(0.55)} disabled={preparing}>
-                Add opponent
+              <button onClick={() => client.addBot(0.55)} disabled={preparing || paired === 2}>
+                Add bot
               </button>
               <div className="spacer" />
               <span style={{ fontSize: 12, color: 'var(--dim)' }}>
@@ -128,6 +191,58 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
                   <i style={{ width: `${Math.round(status.progress * 100)}%` }} />
                 </div>
                 <div className="txt">{status.text || 'Warming up…'}</div>
+              </div>
+            )}
+
+            {room && (
+              <div className="invite">
+                <h3>Play a human</h3>
+                <p className="invite-lead">
+                  {humanOpponent
+                    ? `${theirs?.name ?? 'Your opponent'} is in. Once both phones are connected the match starts itself.`
+                    : room.otherPairUrl
+                      ? `Hand seat ${2 - mySeat}’s code to somebody standing next to you, or send the link to somebody who is not.`
+                      : `Seat ${2 - mySeat} is open on another screen — they pair their own phone from there.`}
+                </p>
+
+                <div className="invite-row">
+                  <div className="invite-code">
+                    <span className="lab">Room</span>
+                    <b>{room.code}</b>
+                  </div>
+                  <CopyButton text={room.joinUrl} />
+                </div>
+                <div className="url">{room.joinUrl}</div>
+
+                <form
+                  className="join-row"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (joinCode.length === 4) client.joinRoom(joinCode);
+                  }}
+                >
+                  <label htmlFor="joincode">Or join their room</label>
+                  <input
+                    id="joincode"
+                    value={joinCode}
+                    inputMode="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="ABCD"
+                    maxLength={4}
+                    onChange={(e) =>
+                      setJoinCode(
+                        [...e.target.value.toUpperCase()]
+                          .filter((c) => ROOM_ALPHABET.includes(c))
+                          .join('')
+                          .slice(0, 4),
+                      )
+                    }
+                  />
+                  <button type="submit" disabled={joinCode.length !== 4 || joinCode === room.code}>
+                    Join
+                  </button>
+                </form>
               </div>
             )}
 
@@ -157,13 +272,27 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
           <div className="qr-panel">
             {room?.pairUrl ? (
               <>
-                <div className="qr-frame">
-                  <canvas ref={canvasRef} />
+                <div className="qr-card">
+                  <div className="qr-title">Your phone</div>
+                  <Qr url={room.pairUrl} />
+                  <div className="code">{room.code}</div>
+                  <div className="hint">
+                    Seat {(room.seat ?? 0) + 1} · scan with your phone camera
+                  </div>
                 </div>
-                <div className="code">{room.code}</div>
-                <div className="hint">
-                  Seat {(room.seat ?? 0) + 1} · scan with your phone camera
-                </div>
+
+                {/* Once that seat has a phone on it the code only says SEAT_TAKEN. */}
+                {room.otherPairUrl && !theirs?.paired && (
+                  <div className="qr-card second">
+                    <div className="qr-title">Second player’s phone</div>
+                    <Qr url={room.otherPairUrl} size={384} />
+                    <div className="hint">
+                      Seat {(1 - mySeat) + 1} · a second phone scanning this screen
+                      plays from here, on this court.
+                    </div>
+                  </div>
+                )}
+
                 {insecure(room.pairUrl) && (
                   <div className="warn-note">
                     This link is plain HTTP, so the phone will load but cannot use
@@ -182,4 +311,39 @@ export function Lobby({ client, onStart, onPlayHere }: Props) {
       </div>
     </div>
   );
+}
+
+/**
+ * What pressing Start actually does, said out loud.
+ *
+ * Any seat with no phone on it gets a bot — including your own. That is the right
+ * default (it is how you watch a demo) and exactly the wrong thing to discover
+ * after pressing a button labelled "Start match".
+ */
+function startLabelFor(
+  preparing: boolean,
+  waitingOnThem: boolean,
+  youArePaired: boolean,
+  theyArePaired: boolean,
+): string {
+  if (preparing) return 'Preparing…';
+  if (waitingOnThem) return 'Waiting for them…';
+  if (youArePaired) return theyArePaired ? 'Start match' : 'Start vs bot';
+  return theyArePaired ? 'Start — a bot plays your seat' : 'Watch two bots';
+}
+
+/** One line under a seat's name saying what that seat is waiting for. */
+function seatStatus(
+  s: { seat: number; paired: boolean; bot: boolean; connected: boolean },
+  isYou: boolean,
+  weShowItsCode: boolean,
+): string {
+  if (s.bot) return 'Built-in opponent';
+  if (s.paired) return s.connected ? 'Phone connected' : 'Phone dropped — waiting';
+  if (isYou) return 'Scan your code, or play from this machine';
+  // Their seat. If we are not the screen showing its code, somebody else's is —
+  // which is exactly what has happened once a friend opens the invite link.
+  return weShowItsCode
+    ? `Open — scan seat ${s.seat + 1}’s code, or invite a friend`
+    : 'Someone is here, connecting a phone…';
 }

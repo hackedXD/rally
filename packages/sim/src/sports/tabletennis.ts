@@ -31,6 +31,7 @@ export const tabletennis: SportModule = {
     nonVolleyZone: 0,
     surround: 2.4,
     tableHeight: 0.76,
+    standBehind: 0.55,
   },
 
   ball: {
@@ -40,6 +41,7 @@ export const tabletennis: SportModule = {
     dragK: 0.042,
     gravityScale: 1.0,
     friction: 0.84,
+    bounces: true,
   },
 
   strike: {
@@ -53,6 +55,7 @@ export const tabletennis: SportModule = {
     paceMin: 2.5,
     paceMax: 8.0,
     reachDepth: 0.85,
+    reachHeight: 2.2,
     flightScale: 0.6,
   },
 

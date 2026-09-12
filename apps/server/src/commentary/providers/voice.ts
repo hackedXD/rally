@@ -18,6 +18,81 @@ import type { SynthResult, VoiceProvider } from './types.js';
 
 const logger = log.child('voice');
 
+/**
+ * A process-wide gate on concurrent ElevenLabs requests.
+ *
+ * The limit belongs to the API key, not to a room — and a room is exactly the
+ * wrong place to enforce it. Two matches preparing their cold banks at the same
+ * time is the ordinary case on a shared server, and two rooms each politely
+ * batching eight requests is sixteen arriving at a door that, on the smaller
+ * plans, admits two.
+ */
+class Gate {
+  private active = 0;
+  private waiting: (() => void)[] = [];
+
+  constructor(private readonly limit: number) {}
+
+  async acquire(): Promise<void> {
+    // A `while` rather than an `if`: waking up is permission to re-check, not
+    // permission to proceed, or two waiters released together both walk in.
+    while (this.active >= this.limit) {
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    }
+    this.active++;
+  }
+
+  release(): void {
+    this.active--;
+    this.waiting.shift()?.();
+  }
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
+  }
+}
+
+const gate = new Gate(Math.max(1, CONFIG.elevenlabs.concurrency));
+
+/**
+ * Rate-limit warnings, collapsed.
+ *
+ * Every line of a cold bank hitting the same limit produces a hundred identical
+ * warnings, which buries the one thing worth reading in the log.
+ */
+let throttledAt = 0;
+let throttledSince = 0;
+function noteThrottled(detail: string): void {
+  throttledSince++;
+  const now = Date.now();
+  if (now - throttledAt < 10_000) return;
+  logger.warn(
+    `tts rate-limited (${throttledSince} since the last report): ${detail}. ` +
+      `Concurrency is capped at ${CONFIG.elevenlabs.concurrency}; ` +
+      'lower ELEVENLABS_CONCURRENCY if this persists.',
+  );
+  throttledAt = now;
+  throttledSince = 0;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** How long to wait before retrying a 429. Honours `retry-after` when present. */
+export function retryDelayMs(retryAfter: string | null, attempt: number): number {
+  const header = Number(retryAfter);
+  if (Number.isFinite(header) && header > 0) return Math.min(8000, header * 1000);
+  // Exponential with jitter, so a batch released together does not re-collide.
+  return Math.min(8000, 2 ** attempt * 250 + Math.random() * 250);
+}
+
+/** Attempts per line before giving the words to the browser's own voice. */
+const MAX_ATTEMPTS = 4;
+
 /** Rough speech duration, for scheduling and ducking. ~2.6 words/second. */
 export function estimateDurationMs(text: string): number {
   const words = text.trim().split(/\s+/).filter(Boolean).length;
@@ -48,6 +123,32 @@ export class ElevenLabsVoice implements VoiceProvider {
    * commentary lines are 8-20 words anyway.
    */
   async synth(text: string): Promise<SynthResult> {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const res = await gate.run(() => this.attempt(text));
+      if (res.kind === 'ok') return res.result;
+      if (res.kind === 'fail') return fallback(text);
+      // Throttled. Wait outside the gate, so the slot goes to somebody who can
+      // use it rather than being held through the backoff.
+      if (attempt === MAX_ATTEMPTS) break;
+      await sleep(retryDelayMs(res.retryAfter, attempt));
+    }
+    return fallback(text);
+  }
+
+  /**
+   * One REST attempt.
+   *
+   * Separated from the retry loop so the concurrency slot covers the request and
+   * nothing else — a backoff held inside the gate would idle a slot that another
+   * line could be using.
+   */
+  private async attempt(
+    text: string,
+  ): Promise<
+    | { kind: 'ok'; result: SynthResult }
+    | { kind: 'fail' }
+    | { kind: 'throttled'; retryAfter: string | null }
+  > {
     const body = {
       text: text.slice(0, 900),
       model_id: CONFIG.elevenlabs.model,
@@ -67,17 +168,24 @@ export class ElevenLabsVoice implements VoiceProvider {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      if (res.status === 429) {
+        noteThrottled((await res.text()).slice(0, 120));
+        return { kind: 'throttled', retryAfter: res.headers.get('retry-after') };
+      }
       if (!res.ok) {
         logger.warn('tts http', res.status, (await res.text()).slice(0, 160));
-        return fallback(text);
+        return { kind: 'fail' };
       }
       const buf = new Uint8Array(await res.arrayBuffer());
-      if (buf.length < 256) return fallback(text);
-      return { audio: buf, durationMs: estimateDurationMs(text), speak: false };
+      if (buf.length < 256) return { kind: 'fail' };
+      return {
+        kind: 'ok',
+        result: { audio: buf, durationMs: estimateDurationMs(text), speak: false },
+      };
     } catch (err) {
       if ((err as Error).name === 'AbortError') logger.warn('tts timed out');
       else logger.warn('tts failed', err);
-      return fallback(text);
+      return { kind: 'fail' };
     } finally {
       clearTimeout(timer);
     }
@@ -94,6 +202,18 @@ export class ElevenLabsVoice implements VoiceProvider {
    * torn down — simpler and more robust than keepalives for lines this short.
    */
   async *streamSynth(text: AsyncIterable<string>): AsyncIterable<Uint8Array> {
+    // A live stream holds its slot for the whole line. That is the point: it is
+    // one concurrent request against the same account as every cold-bank line,
+    // and the account is what the limit is attached to.
+    await gate.acquire();
+    try {
+      yield* this.streamOne(text);
+    } finally {
+      gate.release();
+    }
+  }
+
+  private async *streamOne(text: AsyncIterable<string>): AsyncIterable<Uint8Array> {
     const url =
       `${CONFIG.elevenlabs.wsEndpoint}/text-to-speech/${CONFIG.elevenlabs.voiceId}` +
       `/stream-input?model_id=${encodeURIComponent(CONFIG.elevenlabs.model)}&output_format=mp3_44100_128`;

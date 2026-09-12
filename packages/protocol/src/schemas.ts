@@ -15,7 +15,7 @@ const num = z.number().finite();
 const vec3 = z.tuple([num, num, num]);
 const quat = z.tuple([num, num, num, num]);
 const seat = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
-const sportId = z.enum(['pickleball', 'tabletennis', 'bowling']);
+const sportId = z.enum(['pickleball', 'tabletennis', 'badminton', 'bowling']);
 const phase = z.enum(['lobby', 'serve', 'rally', 'point', 'gameover', 'paused']);
 const priority = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
 const cueClass = z.enum(CUE_CLASSES);
@@ -188,6 +188,8 @@ export const s2dSchema = z.discriminatedUnion('t', [
     seat,
     pairToken: z.string(),
     pairUrl: z.string(),
+    joinUrl: z.string(),
+    otherPairUrl: z.string().nullable(),
     sport: sportId,
     seats: z.array(seatInfo),
     sports: z.array(sportMeta),

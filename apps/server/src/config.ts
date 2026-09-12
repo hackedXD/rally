@@ -50,7 +50,17 @@ export const CONFIG = {
     model: str('ELEVENLABS_MODEL', 'eleven_flash_v2_5'),
     endpoint: str('ELEVENLABS_ENDPOINT', 'https://api.elevenlabs.io/v1'),
     wsEndpoint: str('ELEVENLABS_WS', 'wss://api.elevenlabs.io/v1'),
-    /** Standard tiers cap concurrency around 15; synthesise in batches of 8. */
+    /**
+     * Concurrent requests allowed against this API key, process-wide.
+     *
+     * Deliberately low. The plans differ by an order of magnitude (the free tier
+     * admits two), a 429 costs a retry and a delay, and the cold bank is written
+     * during a lobby that nobody is watching — so the default is the number that
+     * works on the smallest plan rather than the number that is fastest on a big
+     * one. Raise it if your plan allows.
+     */
+    concurrency: num('ELEVENLABS_CONCURRENCY', 3),
+    /** Lines synthesised per progress step. Concurrency is capped separately. */
     batchSize: num('ELEVENLABS_BATCH', 8),
   },
 

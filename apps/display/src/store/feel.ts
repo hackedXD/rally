@@ -90,11 +90,18 @@ class FeelState {
    */
   startReplay(points: readonly { t: number; p: Vec3 }[], focus: Vec3): void {
     if (points.length < 8) return;
+    const span = points.at(-1)!.t - points[0].t;
     this.replay = {
       points: points.map((p) => ({ t: p.t, p: p.p })),
       startedAt: performance.now(),
-      durationMs:
-        ((points.at(-1)!.t - points[0].t) / TUNING.feel.replaySlowMo) || 1200,
+      // Capped to the pause between points. Slow motion stretches three seconds
+      // of history into eight, and a replay still running when the next serve
+      // goes up means the camera is pointing at the wrong half of the court while
+      // live play happens somewhere off screen.
+      durationMs: Math.min(
+        span / TUNING.feel.replaySlowMo || 1200,
+        TUNING.match.pointPauseMs * 0.9,
+      ),
       focus,
     };
   }

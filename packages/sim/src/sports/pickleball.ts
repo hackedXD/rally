@@ -19,6 +19,7 @@ export const pickleball: SportModule = {
     nonVolleyZone: 2.13,
     surround: 3.2,
     tableHeight: 0,
+    standBehind: 0,
   },
 
   ball: {
@@ -27,6 +28,7 @@ export const pickleball: SportModule = {
     dragK: 0.04,
     gravityScale: 1.0,
     friction: 0.78,
+    bounces: true,
   },
 
   strike: {
@@ -38,6 +40,7 @@ export const pickleball: SportModule = {
     paceMin: 3.0,
     paceMax: 9.5,
     reachDepth: 1.6,
+    reachHeight: 2.2,
     flightScale: 1.0,
   },
 

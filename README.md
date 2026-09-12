@@ -14,9 +14,10 @@ npm install
 npm run dev          # server + display + phone, one command
 ```
 
-Then open <http://localhost:5173>, hit **Play here (mouse)**, and **Start match**.
-That plays the whole game with a mouse — no phone required. For the real thing,
-see [Playing with a phone](#playing-with-a-phone).
+Then open <http://localhost:5173>, hit **Play here (mouse)**, and **Start vs bot**.
+That plays the whole game with a mouse — no phone required. For the real thing, see
+[Playing with a phone](#playing-with-a-phone); for an opponent who is not a bot,
+[Playing another human](#playing-another-human).
 
 ---
 
@@ -24,11 +25,11 @@ see [Playing with a phone](#playing-with-a-phone).
 
 | | |
 |---|---|
-| **Sports** | Pickleball (regulation court, rally to 7) and table tennis, sharing one code path. Bowling ships as a compiling interface stub — see [Adding a sport](#adding-a-sport). |
+| **Sports** | Pickleball, table tennis and badminton, sharing one code path — three different courts, three different swings. Bowling ships as a compiling interface stub — see [Adding a sport](#adding-a-sport). |
 | **Controllers** | An iPhone held like a paddle, or a mouse. Both speak the identical protocol; the server cannot tell them apart. |
 | **Opponent** | Another human across the internet, or a built-in bot with a difficulty dial. |
 | **Commentary** | Works with no API keys at all. Add a Gemini key and an ElevenLabs key and the same pipeline upgrades in place. |
-| **Tests** | 92 covering the physics, the shot solver, sensor fusion, the protocol, the commentary, and a full match over real WebSockets. |
+| **Tests** | 99 covering the physics, the shot solver, sensor fusion, the protocol, the commentary, and a full match over real WebSockets. |
 
 ---
 
@@ -46,8 +47,12 @@ npm run dev
 | Health | <http://localhost:8787/healthz> |
 
 **Play right now, with a mouse:** open the display → **Play here (mouse)** →
-**Start match**. Move the mouse to aim, hold click (or <kbd>space</kbd>) to wind
+**Start vs bot**. Move the mouse to aim, hold click (or <kbd>space</kbd>) to wind
 up, release to swing. <kbd>Enter</kbd> serves.
+
+The **Start** button always says what it is about to do — *Start match*, *Start vs
+bot*, *Start — a bot plays your seat*, *Watch two bots* — because every seat with
+no phone on it gets a bot, and that is not something to discover afterwards.
 
 **Watch the simulation with no browser at all:**
 
@@ -91,15 +96,41 @@ shows the gate, and explains that it needs HTTPS for the sensors.
 A 1.5 second calibration follows: hold the phone like a paddle, pointing at your
 display. After that the only input is the swing.
 
-**Two players, two machines.** Each player opens the display on their own screen.
-The second one joins with `?room=CODE`:
+---
+
+## Playing another human
+
+There are three ways to get an opponent, and the lobby offers all of them.
+
+**A bot.** *Add bot* fills the empty seat. Skill 0.55 by default; the tuning panel
+(<kbd>T</kbd>) moves it.
+
+**Two phones, one screen.** While nobody else has claimed seat 2, the lobby shows
+a *second* QR code beside the first. Two people scan one display, stand next to
+each other, and play across the same rendered court. Everything is still
+server-authoritative — the two phones are simply both talking to the same room.
+
+**Two machines, anywhere.** The lobby shows a room code and an invite link.
 
 ```
 https://your-tunnel.example/?room=7KQP
 ```
 
-Each display shows its own QR code for its own seat, and forwards its own player's
-paddle straight back to them with no added delay.
+Send it, or have them type the four-letter code into **Or join their room**. Their
+display takes seat 2 and shows its own QR for its own phone. Each display forwards
+its own player's paddle straight back to them with no added delay, and interpolates
+everything else 100 ms behind server time — that split is most of what makes remote
+play feel local.
+
+The second seat's QR disappears from the host's screen the moment another display
+claims it. Pair tokens are single-use, so a code advertised in two places fails on
+whichever scan arrives second, and a QR that "just doesn't work" is the least
+debuggable failure there is.
+
+Once both phones are paired the match starts by itself; nobody has to press
+anything. And **Start** will not quietly substitute a bot for a player who is still
+calibrating — it refuses, and says who it is waiting for. Your *own* seat is fair
+game: pressing Start with no phone paired is how you ask to watch two bots play.
 
 ---
 
@@ -287,10 +318,45 @@ export const tabletennis: SportModule = {
 };
 ```
 
-Bowling is the honest test: it is not rally-based, so it cannot route through the
-rally loop at all. [`packages/sim/src/sports/bowling.ts`](packages/sim/src/sports/bowling.ts)
+**Badminton is where that stopped being enough**, and it is the more useful example
+because of it. Two of its differences are not numbers:
+
+- **The shuttle never bounces** (`ball.bounces: false`). Every other sport lets the
+  ball land once and be returned; here the first thing it touches ends the rally,
+  in for the hitter or out for the receiver.
+- **It is met above the head.** `contactHeight` is 1.95 m against pickleball's
+  0.78 — above the net rather than below it, which is why the smash is badminton's
+  default attacking shot and not a rare one. `reachHeight` had to become per-sport
+  so an overhead is reachable at all.
+
+Between them those forced a third branch in the contact model. The other two
+sports let the receiver stand near their baseline and wait, because anything short
+bounces back up to them; a shuttle does not, so the receiver has to go and meet it
+in the air — and then the question is *where*, since every point on the descent is
+a legal contact. They meet it at the point that costs them least: distance to run,
+traded against how awkward the contact height is
+(`TUNING.strike.contactComfortBias`). Take the first legal contact instead and both
+players end up crowded on the net playing a thirteen-metre sport in two metres.
+
+Bowling is the other honest test: it is not rally-based, so it cannot route through
+the rally loop at all. [`packages/sim/src/sports/bowling.ts`](packages/sim/src/sports/bowling.ts)
 ships the `TurnController` seam it would hang from — typed, compiling, and
 unimplemented on purpose. The lobby lists it as a stub rather than pretending.
+
+### How the three play
+
+Bot against bot at skill 0.55, six seeds each:
+
+| | shots/rally | match | contact | rallies end on |
+|---|---|---|---|---|
+| Pickleball | 8.5 | 215 s | 0.64 m, below the net | net 49%, double bounce 42%, out 9% |
+| Table tennis | 5.6 | 99 s | 1.17 m, just over the net | net 60%, out 40% |
+| Badminton | 9.7 | 107 s | 2.07 m, three quarters overhead | grounded 61%, net 38% |
+
+Badminton is deliberately the most forgiving of the three on timing and aim. A
+shuttle is met anywhere between the ankles and full stretch overhead, which needs
+more latitude than a ball arriving at a fixed height on a table — and too little
+of it reads as overheads that never register.
 
 ---
 
@@ -301,7 +367,7 @@ unimplemented on purpose. The lobby lists it as a stub rather than pretending.
 | `npm run dev` | Server, display and phone together |
 | `npm run check` | Typecheck everything, then run every test |
 | `npm run headless -- --seed 5` | Watch a match as console output |
-| `npm run headless -- --sport tabletennis --skill 0.8` | …with different settings |
+| `npm run headless -- --sport badminton --skill 0.8` | …with a different sport and bot skill |
 | `npm run mock:snapshots` | Serve a looping match with jitter and packet loss |
 | `npm run mock:events` | Print the scripted 90-second commentary fixture |
 | `npm run echo` | A WebSocket that echoes, for building the phone with no server |
@@ -314,19 +380,107 @@ Set `RALLY_RECORD=1` to write every match to `replays/` as JSONL.
 
 ## Deploying
 
-The server holds WebSockets, so it needs a host that does too — Fly.io and Render
-both work. Everything runs over WSS on 443 to one origin, which sidesteps the two
-ways conference wifi breaks this sort of thing (client isolation and blocked
-ports). Deploy geographically close to the players: cross-continent routing can add
-150 ms, which is more than the entire strike window.
+Everything runs over WSS on 443 to **one origin**, which is both a requirement and
+a convenience. The QR code a phone scans is built from the origin the display was
+served from, and iOS grants motion sensors only over HTTPS — so the display, the
+phone app and the WebSocket must share one TLS hostname or pairing cannot work.
+Serving all three from the Node process is what makes that true, and it sidesteps
+the two ways conference wifi breaks this sort of thing (client isolation and
+blocked ports).
+
+### One instance, on purpose
+
+Rooms, live matches and the commentator's narrative memory live in this process's
+memory. **Do not run two replicas and do not let the host suspend the machine.**
+Two replicas put two players in two processes and the room simply is not found;
+a suspend does not pause a match, it deletes one — and it would do it during the
+idle seconds of a lobby, which is exactly when somebody is waiting for a friend to
+scan a code.
+
+This is also why the cheapest free tiers are a poor fit: most of them idle down,
+and for an app that keeps its state in memory that is not a slow first request,
+it is a deleted match. The Compose setup below restarts on boot and never
+suspends; `fly.toml` sets `auto_stop_machines = false` for the same reason.
+
+Scaling past one box means moving rooms out of process memory. That is a real
+piece of work, not a config change.
+
+### Vultr (or any box you own)
+
+The best fit for this, because the one thing Rally needs from a host is to *stay
+running*: no sleeping on idle, no suspending between matches, and a CPU that is
+actually yours for a 60 Hz tick. A **$6/mo High Frequency instance, 1 GB, in New
+Jersey** covers US East comfortably.
+
+[`deploy/`](deploy/vultr) has the whole thing: the app and Caddy in one
+Compose file, TLS issued and renewed automatically.
+
+```bash
+# once, on a fresh Ubuntu 22.04+ instance
+ssh root@<ip> 'bash -s' < deploy/provision.sh
+
+# then, from here, as often as you like
+deploy/deploy.sh root@<ip>
+```
+
+`provision.sh` installs Docker, adds 2 GB of swap (the display bundle is built on
+the box and peaks past what 1 GB has free — without swap the OOM reaper kills it
+and reports only `exit code 137`), opens the firewall on the SSH port it detects
+rather than assuming 22, and writes a starter `.env`. `deploy.sh` rsyncs the
+working tree — including uncommitted changes, which is what you want when chasing
+something that only happens over a real network — rebuilds, and waits for health.
+
+**You need a hostname, not just an IP.** Let's Encrypt will not issue for a bare
+address, and without a certificate iOS refuses the motion sensors. If you have a
+domain, point an `A` record at the box and set `RALLY_DOMAIN`. If you don't,
+`provision.sh` defaults to [sslip.io](https://sslip.io), which resolves
+`45-76-12-34.sslip.io` to `45.76.12.34` with no DNS setup at all and which
+Let's Encrypt will happily certify:
+
+```bash
+# /opt/rally/deploy/.env
+RALLY_DOMAIN=45-76-12-34.sslip.io
+GEMINI_API_KEY=...
+ELEVENLABS_API_KEY=...
+```
+
+That file lives only on the server — `deploy.sh` excludes it in both directions,
+so a laptop can never overwrite production secrets or drag them back.
+
+```bash
+ssh root@<ip> 'cd /opt/rally/deploy && docker compose logs -f rally'
+curl https://<your-domain>/healthz
+```
+
+### Fly.io
+
+[`fly.toml`](fly.toml) is here too, if you would rather not run a box.
+
+```bash
+fly launch --no-deploy --name rally-<something-unique> --region iad
+fly secrets set GEMINI_API_KEY=... ELEVENLABS_API_KEY=...
+fly deploy && fly scale count 1
+```
+
+Pick a name nobody has taken — the one in `fly.toml` almost certainly is, and
+`fly launch` fails obscurely on that. Keep `auto_stop_machines = false` if
+`fly launch` rewrites the file.
+
+### Anywhere else
 
 ```bash
 npm run build
 RALLY_SERVE_STATIC=1 RALLY_PUBLIC_ORIGIN=https://your.host npm start
 ```
 
+Behind your own TLS terminator, forward `x-forwarded-proto` — without it the
+server assumes plain HTTP (it never guesses `https` from a hostname, because a
+wrong guess hands out a QR code that cannot connect at all) and hands phones a
+URL their sensors will refuse.
+
 Secrets live in environment variables and never in a client bundle. See
-[`.env.example`](.env.example).
+[`.env.example`](.env.example). Nothing needs a key: without them the offline
+writer and the browser's own voice take over.
 
 ---
 

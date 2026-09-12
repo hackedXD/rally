@@ -14,7 +14,8 @@
 import type { CourtSpec, Millis, Seat, SwingInput, Vec3 } from '@rally/protocol';
 import { DEG, TUNING, clamp, clamp01, lerp, seatSign, remap01, vangle, vlen, vnorm } from '@rally/protocol';
 import type { SimParams } from './params.js';
-import type { ContactPrediction } from './predict.js';
+import { surfaceAt } from './physics.js';
+import { heightCost, type ContactPrediction } from './predict.js';
 import { faceNormal } from './shot.js';
 
 export interface StrikeEval {
@@ -45,7 +46,26 @@ export function idealNormal(contact: Vec3, seat: Seat, court: CourtSpec): Vec3 {
   const dx = -contact[0] * 0.35 - contact[0];
   const dz = targetZ - contact[2];
   const horiz = Math.hypot(dx, dz);
-  return vnorm([dx, horiz * 0.22, dz]);
+
+  /*
+   * Where the face should point, and it is not always up.
+   *
+   * A ball met below the tape has to be lifted over it, which is every contact
+   * in pickleball and table tennis — hence the fixed upward slope this used to
+   * return unconditionally. A badminton overhead is the opposite shot: the
+   * shuttle is a half-metre above the net and the racket comes down through it.
+   * Asking for the same 12 degrees of lift scores a perfectly struck smash as
+   * badly aimed, drops its quality, and hands it to the assistance to fix —
+   * which is exactly what "overheads barely register" feels like from the phone.
+   *
+   * Below the tape this is unchanged, so the other two sports are untouched.
+   */
+  const netTop = surfaceAt(court, contact[0], 0) + court.netHeight;
+  const above = clamp01((contact[1] - netTop) / 0.5);
+  const lift = horiz * 0.22;
+  // Straight at the landing spot, never steeper than 45 degrees down.
+  const down = Math.max(-horiz, surfaceAt(court, 0, targetZ) + 0.15 - contact[1]);
+  return vnorm([dx, lerp(lift, down, above), dz]);
 }
 
 export function evaluateStrike(
@@ -155,7 +175,12 @@ export function strikeDifficulty(
     4.0,
   );
   const comfortable = court.tableHeight + params.contactHeight;
-  const awkward = clamp01(Math.abs(prediction.p[1] - comfortable) / 0.9);
+  // Asymmetric: see `heightCost`. A ball above the shoulder is the putaway, not
+  // the problem, and charging it full difficulty tightens the strike window on
+  // exactly the shot the player is most confident about.
+  const awkward = clamp01(
+    heightCost(prediction.p[1] - comfortable, params.highReachEase) / 0.9,
+  );
   return clamp01(
     s.diffPaceWeight * pace + s.diffTravelWeight * travel + s.diffHeightWeight * awkward,
   );

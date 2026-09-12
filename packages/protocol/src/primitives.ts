@@ -14,7 +14,7 @@ export type Vec3 = [number, number, number];
 export type Quat = [number, number, number, number]; // x, y, z, w
 export type Seat = 0 | 1 | 2 | 3;
 export type Millis = number; // server clock, ms since match epoch
-export type SportId = 'pickleball' | 'tabletennis' | 'bowling';
+export type SportId = 'pickleball' | 'tabletennis' | 'badminton' | 'bowling';
 
 export const SEATS: readonly Seat[] = [0, 1, 2, 3] as const;
 

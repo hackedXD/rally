@@ -104,15 +104,38 @@ export interface CourtSpec {
   surround: number;
   /** Table height, for table tennis. 0 means the court is on the floor. */
   tableHeight: number;
+  /**
+   * How far behind the near edge of the playing surface a player's feet stay,
+   * metres. 0 means they may stand on the surface.
+   *
+   * Pickleball players stand on the court; table tennis players stand behind the
+   * table and reach over it. Without this the auto-positioner walks them onto the
+   * table top, which looks exactly as wrong as it sounds.
+   */
+  standBehind: number;
 }
 
 export interface BallSpec {
   radius: number;
   restitution: number;
+  /**
+   * Quadratic drag coefficient. Terminal velocity is `sqrt(g / dragK)`, which is
+   * the useful way to pick it: a pickleball settles around 16 m/s, a shuttlecock
+   * around 6.7, and that ratio is most of what makes the two sports feel unalike.
+   */
   dragK: number;
   gravityScale: number;
   /** Tangential velocity retained on a bounce. */
   friction: number;
+  /**
+   * Whether the projectile may touch the surface and stay in play.
+   *
+   * False for a shuttlecock, and it is a rule rather than a physical detail: the
+   * moment it lands the rally is over, in for the hitter or out for the receiver.
+   * Every other sport here lets the ball bounce once and be returned, so this is
+   * the one flag that changes what a rally *is* rather than how it looks.
+   */
+  bounces: boolean;
 }
 
 /**
@@ -137,6 +160,16 @@ export interface StrikeTuning {
   paceMax: number;
   /** How far past the baseline or table edge a player can still reach, metres. */
   reachDepth: number;
+  /**
+   * Highest the ball can be met, metres above the floor.
+   *
+   * This is the swing style, expressed as a number. A pickleball paddle meets the
+   * ball somewhere between the knee and the shoulder; a badminton racket meets
+   * the shuttle above the head, at full stretch, which is why the smash exists at
+   * all. Set it too low for badminton and every overhead simply sails past an
+   * outstretched player who was never allowed to reach it.
+   */
+  reachHeight: number;
   /**
    * Per-sport multiplier on flight time, composed with the global
    * `TUNING.shot.flightScale`. A small court needs proportionally quick

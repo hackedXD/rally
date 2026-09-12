@@ -334,8 +334,14 @@ describe('the Director, end to end', () => {
 
     // Everything is pushed up front, so an event costs one CUE_PLAY.
     expect(h.preloaded.size).toBeGreaterThan(20);
+
+    // The bank may arrive in a handful of chunks rather than one message — on a
+    // rate-limited voice key the last lines are still being synthesised while the
+    // first ones are already usable, and holding those back buys nothing. What
+    // must not happen is a message per line, which would be a stream, not a bank.
     const preloadMessages = h.sent.filter((m) => m.t === 'CUE_PRELOAD');
-    expect(preloadMessages.length).toBe(1);
+    expect(preloadMessages.length).toBeGreaterThan(0);
+    expect(preloadMessages.length).toBeLessThan(h.preloaded.size / 4);
 
     h.director.onEvent({
       id: 'p1',
@@ -424,7 +430,12 @@ describe('the Director, end to end', () => {
     h.director.dispose();
   }, 30_000);
 
-  it('honours the minimum gap between lines, but lets priority 3 interrupt', async () => {
+  it('will not start a line while the last one is still being spoken', async () => {
+    // The rule that keeps commentary seamless. The display never cuts a line
+    // off any more, so dispatching one on top of another does not overlap them —
+    // it queues the new one and plays it late, describing a game that has moved
+    // on. Waiting is the better answer, and a fixed 700 ms gap is not waiting:
+    // a spoken line is a second or two long.
     const h = harness();
     await h.director.prepare();
 
@@ -440,12 +451,61 @@ describe('the Director, end to end', () => {
 
     h.director.onEvent(whiff('a', 2));
     expect(h.played.length).toBe(1);
+    const spoken = h.preloaded.get(h.played[0].id)!;
+    expect(spoken.durationMs).toBeGreaterThan(TUNING.commentary.minGapMs);
+
     h.advance(50);
-    h.director.onEvent(whiff('b', 2)); // inside the gap: ignored
+    h.director.onEvent(whiff('b', 2));
     expect(h.played.length).toBe(1);
+
+    // Past the old fixed gap, but still mid-sentence. Silence.
     h.advance(TUNING.commentary.minGapMs + 10);
     h.director.onEvent(whiff('c', 2));
+    expect(h.played.length).toBe(1);
+
+    // Priority 3 is the exception, and has to be: the point itself and the end
+    // of the match must be said. It queues behind, rather than cutting in.
+    h.director.onEvent(whiff('d', 3));
     expect(h.played.length).toBe(2);
+
+    // Once the airwaves are actually clear, ordinary lines are allowed again.
+    // Advance well past both queued lines rather than guessing their lengths.
+    h.advance(30_000);
+    h.director.onEvent(whiff('e', 2));
+    expect(h.played.length).toBe(3);
+    h.director.dispose();
+  }, 30_000);
+
+  it('holds play until it has finished speaking, and no longer', async () => {
+    const h = harness();
+    await h.director.prepare();
+
+    // Nothing to say: play is never held.
+    expect(h.director.airtimeUntil()).toBeLessThanOrEqual(h.now);
+
+    h.director.onEvent({
+      id: 'p',
+      t: h.now,
+      type: 'point',
+      seat: 0,
+      data: {
+        winner: 0, loser: 1, winnerName: 'Ada', loserName: 'Bolt',
+        reason: 'net', rallyLength: 5, margin: 1, decidingShot: 'drive',
+        scoreAfter: '1-0',
+      },
+      salience: 0.9,
+      priority: 3,
+    });
+    expect(h.played.length).toBe(1);
+
+    // Now it is talking, so the match is asked to wait — but never past the cap.
+    const hold = h.director.airtimeUntil();
+    expect(hold).toBeGreaterThan(h.now);
+    expect(hold - h.now).toBeLessThanOrEqual(TUNING.commentary.holdPlayMaxMs);
+
+    // And the wait ends on its own.
+    h.advance(TUNING.commentary.holdPlayMaxMs + 1000);
+    expect(h.director.airtimeUntil()).toBeLessThanOrEqual(h.now);
     h.director.dispose();
   }, 30_000);
 

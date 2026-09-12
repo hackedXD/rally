@@ -69,6 +69,14 @@ export interface TickInput {
   connected: Record<number, boolean>;
   /** Seats that pressed SERVE since the last tick. */
   serveRequests: Seat[];
+  /**
+   * Server time before which play must not resume, because the commentator is
+   * still talking. Absent or in the past means carry on.
+   *
+   * The simulation stays pure: it is handed a deadline, it does not know what
+   * audio is or who is speaking.
+   */
+  holdUntil?: Millis;
   paused: boolean;
 }
 
@@ -119,6 +127,8 @@ export class Match implements Simulation {
   private rallyStartedAt: Millis = 0;
   private serveFaults = 0;
   private serveIsLive = false;
+  /** A serve asked for while play was held for commentary. */
+  private serveLatched = false;
 
   private prediction: ContactPrediction | null = null;
   private telegraph: StrikeTelegraph | null = null;
@@ -151,6 +161,9 @@ export class Match implements Simulation {
     this.rng = makeRng(opts.seed);
     this.score = opts.sport.scoring.initial(opts.firstServer ?? 0);
     this.stats = emptyStats(0);
+    // Params first: positioning reads them, and a field assigned later in the
+    // constructor is simply undefined to anything that runs before it.
+    this.params = resolveParams(opts.sport);
     this.players = LANE.map((seat) => ({
       seat: seat as Seat,
       name: opts.names[seat] ?? `Player ${seat + 1}`,
@@ -160,7 +173,6 @@ export class Match implements Simulation {
       connected: true,
       bot: opts.bots?.[seat] ?? false,
     }));
-    this.params = resolveParams(opts.sport);
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────────
@@ -259,7 +271,14 @@ export class Match implements Simulation {
         this.stepRally(dt);
         break;
       case 'point':
-        if (this.t - this.phaseT >= TUNING.match.pointPauseMs) {
+        // Hold the pause open while a line is still being spoken. The point is
+        // already decided and nothing is in flight, so this costs nothing but a
+        // beat — and it is what stops the next serve landing on top of the
+        // commentary for the point that just finished.
+        if (
+          this.t - this.phaseT >= TUNING.match.pointPauseMs &&
+          this.t >= (input.holdUntil ?? 0)
+        ) {
           if (this.matchWinner !== null) this.enterGameOver();
           else this.beginServe(true);
         }
@@ -292,9 +311,23 @@ export class Match implements Simulation {
     };
     this.owner = null;
 
-    const requested = input.serveRequests.includes(server);
+    // Latch the request rather than reading it live: the room clears
+    // `serveRequests` every tick, so a button pressed during a commentary hold
+    // would otherwise be silently dropped and the player would press it again,
+    // and again, wondering what was broken.
+    if (input.serveRequests.includes(server)) this.serveLatched = true;
+
+    const held = this.t < (input.holdUntil ?? 0);
     const timedOut = this.t - this.phaseT > TUNING.serve.autoServeAfterMs;
-    if (requested || timedOut) this.autoServe(server);
+    // The auto-serve deadline outranks the hold. A demo must never stall on
+    // someone who did not understand the UI, and it must equally never stall on
+    // a commentator who will not stop talking — belt and braces, because a hold
+    // that fails open is a game that has stopped.
+    if (held && !timedOut) return;
+    if (this.serveLatched || timedOut) {
+      this.serveLatched = false;
+      this.autoServe(server);
+    }
   }
 
   private stepRally(dt: number): void {
@@ -412,6 +445,16 @@ export class Match implements Simulation {
           return;
         }
 
+        // Nothing bounces in badminton. A shuttle that has reached the floor
+        // legally — in bounds, and past the service line if it was a serve — is
+        // a point for whoever hit it, because the receiver failing to reach it
+        // in the air is exactly what ending a rally means here. Deliberately
+        // below the fault checks above: out and short still belong to the hitter.
+        if (!this.sport.ball.bounces) {
+          this.endRally(this.owner, 'grounded');
+          return;
+        }
+
         if (this.isServeInFlight()) this.serveIsLive = false; // the serve is good
         return;
       }
@@ -425,6 +468,7 @@ export class Match implements Simulation {
 
   private beginServe(newPoint: boolean): void {
     if (newPoint) this.serveFaults = 0;
+    this.serveLatched = false;
     this.setPhase('serve');
     this.rally = 0;
     this.rallyStartedAt = this.t;
@@ -731,7 +775,7 @@ export class Match implements Simulation {
       seat,
       this.t,
       this.params,
-      { mustBounce: opts.mustBounce, bouncesAlready },
+      { mustBounce: opts.mustBounce, bouncesAlready, receiverAt: wasAt },
     );
     if (!this.prediction) {
       this.telegraph = null;
@@ -851,8 +895,32 @@ export class Match implements Simulation {
   }
 
   /**
-   * Auto-positioning. The receiver stands exactly where the contact will happen,
-   * which is what lets the only input be the swing.
+   * Where a player's FEET may be.
+   *
+   * On a court, anywhere on their own half. Behind a table, strictly behind the
+   * near edge — a table tennis player reaches over the table, they do not stand on
+   * it, and the auto-positioner will happily walk them onto the top otherwise.
+   */
+  private standZ(seat: Seat, preferred: number): number {
+    const court = this.sport.court;
+    const side = seatSign(seat);
+    const half = court.length / 2;
+
+    if (court.standBehind > 0) {
+      const nearest = half + court.standBehind;
+      const furthest = nearest + this.params.reachDepth;
+      return side * clamp(Math.abs(preferred), nearest, furthest);
+    }
+    return clamp(
+      preferred,
+      side < 0 ? -half - this.params.reachDepth : 0.9,
+      side < 0 ? -0.9 : half + this.params.reachDepth,
+    );
+  }
+
+  /**
+   * Auto-positioning. The receiver tracks where the contact will happen, which is
+   * what lets the only input be the swing.
    */
   private wantedPosition(seat: Seat): Vec3 {
     const court = this.sport.court;
@@ -864,15 +932,11 @@ export class Match implements Simulation {
       return [
         clamp(target[0], -court.width / 2 - 1.1, court.width / 2 + 1.1),
         0,
-        clamp(
-          target[2],
-          side < 0 ? -half - this.params.reachDepth : 0.9,
-          side < 0 ? -0.9 : half + this.params.reachDepth,
-        ),
+        this.standZ(seat, target[2]),
       ];
     }
     if (this.phase === 'serve' && this.score.server === seat) {
-      return [clamp(this.rng.spread(0.0), -1, 1) * 0 + 0, 0, side * (half - 0.45)];
+      return [0, 0, this.standZ(seat, side * (half - 0.45))];
     }
     return this.readyPosition(seat);
   }
@@ -881,17 +945,20 @@ export class Match implements Simulation {
     const court = this.sport.court;
     const side = seatSign(seat);
     const ballX = this.body ? clamp(this.body.p[0] * 0.35, -court.width / 2, court.width / 2) : 0;
-    return [ballX, 0, side * (court.length / 2 - 0.9)];
+    return [ballX, 0, this.standZ(seat, side * (court.length / 2 - 0.9))];
   }
 
   private handPosition(seat: Seat): Vec3 {
     const court = this.sport.court;
     const side = seatSign(seat);
     const base = this.players[seat]?.p ?? this.readyPosition(seat);
+    const z = this.standZ(seat, side * (court.length / 2 - 0.35));
     return [
       base[0] + side * 0.18,
-      surfaceAt(court, base[0], base[2]) + TUNING.serve.holdHeight + court.tableHeight * 0,
-      side * (court.length / 2 - 0.35),
+      // Held above whatever the server is standing on — the floor behind a table,
+      // the court itself otherwise.
+      surfaceAt(court, base[0], z) + TUNING.serve.holdHeight,
+      z,
     ];
   }
 

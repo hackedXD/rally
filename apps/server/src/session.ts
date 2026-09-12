@@ -9,6 +9,7 @@ import {
   TUNING,
   applyTuningPatch,
   flattenTuning,
+  otherSeat,
   type AnyInbound,
   type C2S,
   type D2S,
@@ -25,6 +26,18 @@ const logger = log.child('session');
 
 /** Rooms with nobody in them are reaped after this long. */
 const IDLE_REAP_MS = 10 * 60_000;
+
+/**
+ * The phone URL for one seat.
+ *
+ * `/c/` with the trailing slash, not `/c`: the controller's dev server serves its
+ * index at the directory form, so the bare path 404s in development. The
+ * trailing-slash form works against both the dev server and the production static
+ * mount.
+ */
+function pairUrl(origin: string, room: Room, seat: Seat): string {
+  return `${origin}/c/#r=${room.code}&s=${seat}&t=${encodeURIComponent(room.tokenFor(seat))}`;
+}
 
 export class SessionManager {
   private rooms = new Map<string, Room>();
@@ -118,10 +131,24 @@ export class SessionManager {
           conn.send({ t: 'ERROR', code: 'NO_ROOM', message: 'No room with that code.' });
           return;
         }
-        if (room.addDisplay(conn) === null) {
-          conn.send({ t: 'ERROR', code: 'FULL', message: 'That room is full.' });
+        const previous = this.roomOf(conn);
+        if (previous === room) {
+          this.refresh(room);
           return;
         }
+        if (room.addDisplay(conn) === null) {
+          conn.send({ t: 'ERROR', code: 'FULL', message: 'That room already has two players.' });
+          return;
+        }
+        // Joining from the lobby is a move, not a second membership. Without this
+        // the abandoned room still holds this socket in a seat, so it never looks
+        // empty, never gets reaped, and keeps a QR code alive for a screen that
+        // has moved on.
+        if (previous) {
+          previous.removeConn(conn);
+          this.refresh(previous);
+        }
+        logger.info(`${conn.id} joined room ${room.code}`);
         this.refresh(room);
         return;
       }
@@ -143,7 +170,7 @@ export class SessionManager {
       case 'ADD_BOT': {
         const room = this.roomOf(conn);
         if (!room) return;
-        if (room.addBot(msg.skill) === null) {
+        if (room.addBot(msg.skill, conn.seat) === null) {
           conn.send({ t: 'ERROR', code: 'FULL', message: 'Both seats are taken.' });
         }
         this.refresh(room);
@@ -154,7 +181,12 @@ export class SessionManager {
       case 'START': {
         const room = this.roomOf(conn);
         if (!room) return;
-        void room.start();
+        const blocker = room.startBlocker(conn.seat);
+        if (blocker) {
+          conn.send({ t: 'ERROR', code: 'SEAT_NOT_READY', message: blocker });
+          return;
+        }
+        void room.start(conn.seat);
         return;
       }
 
@@ -246,23 +278,53 @@ export class SessionManager {
       const display = room.displayFor(seat);
       if (!display) continue;
       const origin = this.originFor(display);
-      // `/c/` with the trailing slash, not `/c`: the controller's dev server
-      // serves its index at the directory form, so the bare path 404s in
-      // development. The trailing-slash form works against both the dev server
-      // and the production static mount.
-      const url =
-        `${origin}/c/#r=${room.code}&s=${seat}&t=${encodeURIComponent(room.tokenFor(seat))}`;
+      const other = otherSeat(seat);
       display.send({
         t: 'ROOM_STATE',
         room: room.code,
         seat,
         pairToken: room.tokenFor(seat),
-        pairUrl: url,
+        pairUrl: pairUrl(origin, room, seat),
+        // The display bundle is served from this same origin — by the static
+        // mount in production, and by the Vite dev server that proxies `/ws`
+        // here in development — so the origin that can reach the socket is also
+        // the one that can open a second display.
+        joinUrl: `${origin}/?room=${room.code}`,
+        // Only one screen may advertise a seat's code at a time; a single-use
+        // token shown in two places fails on the second scan.
+        otherPairUrl: room.hasDisplay(other) ? null : pairUrl(origin, room, other),
         sport: room.sport.id,
         seats: room.seatInfo(),
         sports: room.sportsMeta(),
         host: seat === 0,
       });
+    }
+  }
+
+  /**
+   * Close sockets that have stopped answering, and free the seats they hold.
+   *
+   * A browser answers a WebSocket ping frame in its network stack, below any
+   * JavaScript, so a client that is merely busy stays alive — one whose machine
+   * slept, whose wifi vanished, or whose tab was killed without a close frame
+   * never answers at all. Without this it keeps its seat indefinitely: the seat
+   * reads as occupied, its QR code never comes back, and the friend who was
+   * invited to take it cannot.
+   */
+  heartbeat(): void {
+    for (const conn of [...this.conns]) {
+      if (!conn.alive) {
+        logger.info(`${conn.id} stopped answering; dropping`);
+        this.drop(conn);
+        conn.ws.terminate();
+        continue;
+      }
+      conn.alive = false;
+      try {
+        conn.ws.ping();
+      } catch {
+        this.drop(conn);
+      }
     }
   }
 

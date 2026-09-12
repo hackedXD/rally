@@ -148,17 +148,8 @@ app.server.on('upgrade', (req, socket, head) => {
   });
 });
 
-/** Heartbeat: reap sockets that have stopped answering. */
-const heartbeat = setInterval(() => {
-  for (const client of wss.clients) {
-    if (client.readyState !== 1) continue;
-    try {
-      client.ping();
-    } catch {
-      /* it will be closed by the error handler */
-    }
-  }
-}, 15_000);
+/** Heartbeat: reap sockets that have stopped answering. See `heartbeat()`. */
+const heartbeat = setInterval(() => sessions.heartbeat(), 15_000);
 
 // ── The loop ──────────────────────────────────────────────────────────────────
 

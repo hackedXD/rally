@@ -8,6 +8,7 @@
  */
 
 import {
+  NAME_MAX,
   QUAT_IDENTITY,
   TUNING,
   dequantQuat,
@@ -55,6 +56,17 @@ const logger = log.child('room');
  * simulation has to know which end of the court it is on.
  */
 const SEAT1_FLIP: Quat = qFromAxisAngle([0, 1, 0], Math.PI);
+
+/**
+ * How long a pair token stays scannable.
+ *
+ * Refreshed on every lobby broadcast rather than fixed from room creation: a
+ * room waiting for a friend to arrive is a room whose QR code is on screen right
+ * now, and expiring it out from under them turns "I'll text you the link" into
+ * "rescan, it says the code is dead". The window still closes once the match
+ * starts, which is when a code photographed off a screen would actually matter.
+ */
+const PAIR_TOKEN_TTL_MS = 5 * 60_000;
 
 export function poseToWorld(seat: Seat, q: Quat): Quat {
   return lane(seat) === 1 ? qmul(SEAT1_FLIP, q) : q;
@@ -147,7 +159,7 @@ export class Room {
       bot: null,
       pairToken: shortId(22, rand),
       tokenUsed: false,
-      tokenExpires: this.now() + 5 * 60_000,
+      tokenExpires: this.now() + PAIR_TOKEN_TTL_MS,
       droppedAt: null,
       pose: QUAT_IDENTITY,
       poseCt: 0,
@@ -181,9 +193,9 @@ export class Room {
   }
 
   /**
-   * Pair a controller. Pair tokens are single-use and expire after five minutes:
-   * rejecting a reused token prevents the confusing failure where two phones
-   * fight over one seat.
+   * Pair a controller. Pair tokens are single-use and time-limited (see
+   * PAIR_TOKEN_TTL_MS): rejecting a reused token prevents the confusing failure
+   * where two phones fight over one seat.
    */
   pairController(conn: Conn, seat: Seat, token: string): { ok: true } | { ok: false; code: string; message: string } {
     const slot = this.slots[lane(seat)];
@@ -214,7 +226,10 @@ export class Room {
   removeConn(conn: Conn): void {
     for (const slot of this.slots) {
       if (slot.display === conn) slot.display = null;
-      if (slot.controller === conn) {
+      // `droppedAt === null` guards against re-stamping: a socket can be dropped
+      // twice (the heartbeat terminates it, then the close event arrives), and
+      // restarting the grace window each time would extend it indefinitely.
+      if (slot.controller === conn && slot.droppedAt === null) {
         // Ten-second grace window; the simulation pauses rather than ending.
         slot.droppedAt = this.now();
         logger.info(`${this.code}: seat ${slot.seat} controller dropped`);
@@ -242,14 +257,37 @@ export class Room {
     return this.slots[lane(seat)].pairToken;
   }
 
+  /** True when a display of its own is sitting on this seat. */
+  hasDisplay(seat: Seat): boolean {
+    return this.slots[lane(seat)].display !== null;
+  }
+
   // ── Controller input ────────────────────────────────────────────────────────
 
   setReady(seat: Seat, name: string): void {
     const slot = this.slots[lane(seat)];
-    slot.name = sanitizeName(name, `Player ${lane(seat) + 1}`);
+    slot.name = this.uniqueName(name, seat);
     slot.ready = true;
     this.match.setNames(this.names());
     this.touch();
+  }
+
+  /**
+   * Keep the two players distinguishable.
+   *
+   * The commentator builds every line out of "{player}" and "{opponent}", so two
+   * people called the same thing produce "Ada takes it from Ada" — spoken out
+   * loud, in front of an audience. Easy to hit without trying: the display
+   * generates a name and remembers it in localStorage, so two browser windows on
+   * one machine arrive with exactly the same one.
+   */
+  private uniqueName(raw: string, seat: Seat): string {
+    const fallback = `Player ${lane(seat) + 1}`;
+    const name = sanitizeName(raw, fallback);
+    const taken = this.slots[lane(otherSeat(seat))].name;
+    if (!taken || taken.toLowerCase() !== name.toLowerCase()) return name;
+    const suffixed = `${name.slice(0, NAME_MAX - 3).trimEnd()} II`;
+    return suffixed.toLowerCase() === taken.toLowerCase() ? fallback : suffixed;
   }
 
   setCalibrated(seat: Seat, yawOffset: number): void {
@@ -309,20 +347,75 @@ export class Room {
     return true;
   }
 
-  addBot(skill: number): Seat | null {
-    const free = this.slots.find((s) => s.controller === null && s.bot === null);
-    if (!free) return null;
-    free.bot = new Bot(free.seat, makeBotRng(this.seed + free.seat), skill);
-    free.name = free.name ?? botName(free.seat);
-    free.ready = true;
-    this.match.setBot(free.seat, true);
+  /**
+   * Seat a bot. `avoid` is the seat of whoever asked.
+   *
+   * A preference order rather than a filter, because every seat has to stay
+   * reachable — pressing this twice is how you set two bots playing each other:
+   *
+   *   1. an empty seat that is not yours — the ordinary "give me an opponent".
+   *      Without this first, Add bot from a player who has not paired a phone yet
+   *      lands in their OWN seat, the first one a scan reaches, handing their side
+   *      of the court to the computer while the far side sits empty;
+   *   2. your own seat — a bot plays for you, and you watch;
+   *   3. a seat somebody else's display is sitting at. Last, and only once there
+   *      is nowhere else: it takes a waiting player's place.
+   */
+  addBot(skill: number, avoid: Seat | null = null): Seat | null {
+    const open = (s: SeatSlot): boolean => s.controller === null && s.bot === null;
+    const yours = (s: SeatSlot): boolean => avoid !== null && lane(s.seat) === lane(avoid);
+    const order: ((s: SeatSlot) => boolean)[] = [
+      (s) => open(s) && !yours(s) && s.display === null,
+      (s) => open(s) && yours(s),
+      open,
+    ];
+    for (const pick of order) {
+      const free = this.slots.find(pick);
+      if (!free) continue;
+      this.seatBot(free, skill);
+      return free.seat;
+    }
+    return null;
+  }
+
+  private seatBot(slot: SeatSlot, skill: number): void {
+    slot.bot = new Bot(slot.seat, makeBotRng(this.seed + slot.seat), skill);
+    slot.name = slot.name ?? botName(slot.seat);
+    slot.ready = true;
+    this.match.setBot(slot.seat, true);
     this.match.setNames(this.names());
     this.touch();
-    return free.seat;
   }
 
   get readyToStart(): boolean {
     return this.slots.every((s) => s.ready && (s.controller !== null || s.bot !== null));
+  }
+
+  /**
+   * A seat that belongs to somebody else's screen and has no phone on it yet.
+   *
+   * This is the one seat a bot must never be dropped into: a person is sitting
+   * there, mid-calibration. Your OWN unpaired seat is fair game — pressing Start
+   * without a phone is how you ask to watch the bots play.
+   */
+  private reservedForSomeoneElse(slot: SeatSlot, requester: Seat | null): boolean {
+    if (slot.controller !== null || slot.bot !== null) return false;
+    if (slot.display === null) return false;
+    return requester === null || lane(slot.seat) !== lane(requester);
+  }
+
+  /**
+   * Why START from this seat would not start a match right now, or null.
+   *
+   * Without this, pressing Start while a friend is still calibrating replaces
+   * them with a bot, and the match they came for is already over when they
+   * finish.
+   */
+  startBlocker(requester: Seat | null = null): string | null {
+    const waiting = this.slots.find((s) => this.reservedForSomeoneElse(s, requester));
+    if (!waiting) return null;
+    const who = this.slots[lane(waiting.seat)].name ?? `Player ${lane(waiting.seat) + 1}`;
+    return `${who} is still connecting a phone. Give them a moment, or add bots and start without them.`;
   }
 
   /**
@@ -331,11 +424,19 @@ export class Room {
    * never blocks for more than `prepareCapMs`, because a demo must not stall on
    * somebody else's API.
    */
-  async start(prepareCapMs = 12_000): Promise<void> {
+  async start(requester: Seat | null = null, prepareCapMs = 12_000): Promise<void> {
     if (this.phase === 'live' || this.phase === 'preparing') return;
-    // Anyone still unfilled gets a bot, so START always starts something.
+    // Anyone still unfilled gets a bot, so START always starts something — except
+    // a seat held by another player's display, which `startBlocker` has already
+    // turned away and which is not ours to fill.
     for (const slot of this.slots) {
-      if (slot.controller === null && slot.bot === null) this.addBot(TUNING.bot.skill);
+      if (
+        slot.controller === null &&
+        slot.bot === null &&
+        !this.reservedForSomeoneElse(slot, requester)
+      ) {
+        this.seatBot(slot, TUNING.bot.skill);
+      }
       slot.ready = true;
     }
     this.phase = 'preparing';
@@ -444,6 +545,10 @@ export class Room {
         1: this.slots[1].bot !== null || this.slots[1].droppedAt === null,
       },
       serveRequests: this.serveRequests,
+      // Hold play while the commentator still has something to say. Capped
+      // inside the director, so a bad estimate slows the game rather than
+      // stopping it.
+      holdUntil: this.director.airtimeUntil(),
       paused,
     });
     this.serveRequests = [];
@@ -473,6 +578,12 @@ export class Room {
   }
 
   private finish(): void {
+    // Before anything else. The simulation stays in 'gameover' forever, so a
+    // guard that only reads the match phase re-fires every tick — 60 MATCH_END
+    // broadcasts a second, 60 controller cues, 60 replay writes, and a display
+    // that cannot leave the end card because it is slammed back onto it 16 ms
+    // after the player navigates away.
+    this.phase = 'finished';
     const winner = this.match.getWinner() ?? 0;
     this.toDisplays({
       t: 'MATCH_END',
@@ -572,6 +683,14 @@ export class Room {
    * for a refresh without reaching back into the session layer.
    */
   broadcastRoomState(): void {
+    // The codes are about to be drawn on a screen, so make sure they are still
+    // good. See PAIR_TOKEN_TTL_MS.
+    if (this.phase === 'lobby') {
+      const until = this.now() + PAIR_TOKEN_TTL_MS;
+      for (const slot of this.slots) {
+        if (slot.controller === null) slot.tokenExpires = until;
+      }
+    }
     this.touch();
   }
 

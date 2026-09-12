@@ -36,11 +36,24 @@ export function App() {
   const virtual = useRef<VirtualController | null>(null);
   const canvasWrap = useRef<HTMLDivElement>(null);
 
+  /**
+   * One client, constructed but NOT connected here.
+   *
+   * StrictMode runs a component body twice on mount, so a `useMemo` that opens a
+   * socket opens two and only ever returns one of them. The orphan is invisible
+   * and unreachable — no effect can clean it up — but it is a real display in a
+   * real seat, and with `?room=` both of them race for the two seats of the room
+   * you were invited to: one wins, the other is told the room is full, and the
+   * one the scene actually reads may be the loser. Connecting from an effect,
+   * which React pairs with a cleanup, keeps exactly one socket alive.
+   */
   const client = useMemo(() => {
-    const joinCode = new URLSearchParams(location.search).get('room');
     const c = new RallyClient(defaultWsUrl(), {
       onConn: (state) => useGame.getState().setConn(state),
-      onRoom: (room: RoomView) => useGame.getState().setRoom(room),
+      onRoom: (room: RoomView) => {
+        useGame.getState().setRoom(room);
+        rememberRoom(room.code);
+      },
       onMatchStart: (sport, names) => {
         const g = useGame.getState();
         g.setNames(names);
@@ -66,10 +79,14 @@ export function App() {
         setTimeout(() => useGame.getState().setError(null), 5000);
       },
     });
-    c.connect('pickleball', joinCode);
     return c;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    client.connect('pickleball', new URLSearchParams(location.search).get('room'));
+    return () => client.close();
+  }, [client]);
 
   // Subtitles come from the audio engine, which is the thing that knows when a
   // line actually starts playing rather than when it was scheduled.
@@ -134,12 +151,16 @@ export function App() {
         const history = client.snapshots.ballHistory;
         if (Number(d.rallyLength) >= 3 && history.length > 10) {
           const last = history.at(-1)!.p;
-          feel.startReplay(history.slice(-90), last);
+          // The winning shot, not the last three seconds: at 0.35x even a short
+          // clip fills the pause between points.
+          feel.startReplay(history.slice(-26), last);
         }
         break;
       }
       case 'rally_milestone':
-        g.showBanner(`${d.shots} shots`, 'and still going', 1400);
+        // No banner: this fires DURING a rally, and a full-screen overlay across
+        // the court at shot six is worse than useless. The rally pill under the
+        // scoreboard already reports it.
         break;
       case 'streak':
         g.showBanner(`${d.length} in a row`, '', 1400);
@@ -161,9 +182,34 @@ export function App() {
   const unlockAudio = useCallback(async () => {
     const ok = await audio.unlock();
     useGame.getState().setAudioReady(ok);
-    if (ok) client.audioUnlocked();
-    return ok;
+    if (!ok) return false;
+    client.audioUnlocked();
+    // A match already under way has passed the point where the crowd would have
+    // been started, so start it now rather than leaving an empty stadium for the
+    // rest of the game.
+    if (useGame.getState().screen === 'playing') audio.startCrowd();
+    return true;
   }, [client]);
+
+  /**
+   * Unlock on the first gesture anywhere on the page.
+   *
+   * Audio needs a user gesture, and the Start button used to be the only thing
+   * that supplied one. In a two-phone match nobody ever touches the display —
+   * both players pair from their phones and the match starts itself — so waiting
+   * for that button means the whole game is silent. Any click or key will do.
+   */
+  const audioReady = store.audioReady;
+  useEffect(() => {
+    if (audioReady) return;
+    const onGesture = (): void => void unlockAudio();
+    window.addEventListener('pointerdown', onGesture, { capture: true });
+    window.addEventListener('keydown', onGesture, { capture: true });
+    return () => {
+      window.removeEventListener('pointerdown', onGesture, { capture: true });
+      window.removeEventListener('keydown', onGesture, { capture: true });
+    };
+  }, [audioReady, unlockAudio]);
 
   const startMatch = useCallback(() => {
     // The synchronous part of unlocking is what needs the user gesture, and it
@@ -251,12 +297,23 @@ export function App() {
 
   useEffect(() => () => virtual.current?.disconnect(), []);
 
+  // Moving to a friend's room leaves the mouse controller paired to the old one,
+  // holding a seat in a room nobody is looking at any more.
+  const roomCode = store.room?.code;
+  useEffect(() => {
+    const vc = virtual.current;
+    if (!vc || !roomCode || vc.room === roomCode) return;
+    vc.disconnect();
+    virtual.current = null;
+    setVirtualState(null);
+  }, [roomCode]);
+
   const ownSeat: Seat = store.room?.seat ?? 0;
   const court = COURTS[store.sport as SportId] ?? COURTS.pickleball;
   const playing = store.screen === 'playing' || store.screen === 'over';
 
   return (
-    <div className="stage">
+    <div className={`stage${virtualState && playing ? ' has-vc' : ''}`}>
       <div className="canvas-wrap" ref={canvasWrap}>
         <Canvas
           shadows
@@ -285,6 +342,13 @@ export function App() {
           }}
         />
       )}
+      {playing && !store.audioReady && (
+        // Nobody has touched this screen, so the browser will not let a sound out
+        // of it. Say so, rather than being mysteriously silent.
+        <button className="sound-prompt" onClick={() => void unlockAudio()}>
+          Click anywhere for sound
+        </button>
+      )}
       {virtualState && playing && (
         <VirtualPanel state={virtualState} onServe={() => virtual.current?.serve()} />
       )}
@@ -292,6 +356,20 @@ export function App() {
       {store.error && <div className="toast">{store.error}</div>}
     </div>
   );
+}
+
+/**
+ * Keep the room code in the address bar.
+ *
+ * Reloading mid-lobby is common — someone denies motion access and starts over —
+ * and without this the display silently opens a brand new room while the friend
+ * it invited is still sitting in the old one.
+ */
+function rememberRoom(code: string): void {
+  const url = new URL(location.href);
+  if (url.searchParams.get('room') === code) return;
+  url.searchParams.set('room', code);
+  history.replaceState(null, '', url);
 }
 
 /**
