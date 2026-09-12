@@ -53,6 +53,8 @@ const ICON = (paths: string): string =>
 const SPEAKER = '<path d="M4 9h4l5-4v14l-5-4H4z"/>';
 const ICON_MUTED = ICON(`${SPEAKER}<path d="M17 9.5l4 5M21 9.5l-4 5"/>`);
 const ICON_SOUND = ICON(`${SPEAKER}<path d="M17 8.5a5 5 0 0 1 0 7"/>`);
+/** A door with an arrow leaving it. The way out of a match. */
+const ICON_EXIT = ICON('<path d="M14 4H5v16h9"/><path d="M18 12H10M15 8l4 4-4 4"/>');
 
 /**
  * Which screen is up.
@@ -363,6 +365,10 @@ function draw(): void {
         ${escapeHtml(playerName)}
       </button>
       <span class="spacer"></span>
+      <button class="icon-btn" id="exit" aria-label="Leave this match"
+              ${phase === 'lobby' || phase === 'gameover' ? 'hidden' : ''}>
+        ${ICON_EXIT}
+      </button>
       <button class="icon-btn ${muted ? 'on' : ''}" id="mute"
               aria-label="${muted ? 'Unmute commentary' : 'Mute commentary'}"
               aria-pressed="${muted}">
@@ -409,6 +415,15 @@ function draw(): void {
     haptics.play('serve');
   });
   app.querySelector('#ready')?.addEventListener('click', readyUp);
+  app.querySelector('#exit')?.addEventListener('click', () => {
+    // Confirmed, because it ends the match for the other player too and a phone
+    // is a pocketful of accidental taps.
+    if (!confirm('Leave this match? It ends for both players.')) return;
+    net?.abort();
+    localReady = false;
+    haptics.play('serve');
+    renderPlay();
+  });
   app.querySelector('#rematch')?.addEventListener('click', () => {
     net?.rematch();
     localReady = false;

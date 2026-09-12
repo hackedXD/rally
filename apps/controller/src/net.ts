@@ -224,6 +224,11 @@ export class ControllerNet {
     this.send({ t: 'REMATCH' });
   }
 
+  /** Call the match off, from the phone. Everyone goes back to the lobby. */
+  abort(): void {
+    this.send({ t: 'ABORT' });
+  }
+
   calibrated(yawOffset: number): void {
     this.send({ t: 'CALIBRATED', yawOffset });
   }

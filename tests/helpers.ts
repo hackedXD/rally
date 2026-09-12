@@ -19,6 +19,27 @@ export interface PlayResult {
   events: GameEvent[];
 }
 
+/**
+ * One engine for a sport, bots seated, nothing started.
+ *
+ * The engine a sport runs on is a detail of the sport, and a test that picks the
+ * wrong one is testing nothing — so the choice lives here, next to the same
+ * choice `playMatch` makes.
+ */
+export function makeMatch(sportId: SportId, seed = 1234): { match: MatchEngine } {
+  const sport = getSport(sportId);
+  const match: MatchEngine =
+    sportId === 'tabletennis'
+      ? new PingPongMatch({ sport, seed, names: ['Ace', 'Bolt'], bots: [true, true] })
+      : new Match({ sport, seed, names: ['Ace', 'Bolt'], bots: [true, true] });
+  match.setBot(0, true, 0.5);
+  match.setBot(1, true, 0.5);
+  return { match };
+}
+
+/** A tick input that asks for nothing: no poses, no requests, not paused. */
+export const tickInput = (t: number) => emptyTickInput(t);
+
 /** Run a full bot-vs-bot match headlessly. */
 export function playMatch(opts: {
   sport?: SportId;

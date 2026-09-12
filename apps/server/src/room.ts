@@ -157,6 +157,8 @@ export class Room {
   private serveRequests: Seat[] = [];
   /** When the last seat readied up, so the serve can wait a beat after it. */
   private pointReadyAt: Millis = 0;
+  /** This point's beat, drawn once so it cannot jitter frame to frame. */
+  private pointReadyDelay = 0;
   private lastSnapshotAt = -1e9;
   private lastLiteAt = -1e9;
   private seed: number;
@@ -272,6 +274,25 @@ export class Room {
     return { ok: true };
   }
 
+  /**
+   * Hand a seat back to the room: no phone, no name, not ready, new token.
+   *
+   * The QR the display is showing is built from `pairToken`, so the display has
+   * to be told — `broadcastRoomState` is how the new code reaches the screen.
+   */
+  private releaseSeat(slot: SeatSlot): void {
+    slot.controller = null;
+    slot.droppedAt = null;
+    slot.ready = false;
+    slot.pointReady = false;
+    slot.name = null;
+    slot.paused = false;
+    slot.pairToken = shortId(22, Math.random);
+    slot.tokenUsed = false;
+    slot.tokenExpires = this.now() + PAIR_TOKEN_TTL_MS;
+    this.match.setNames(this.names());
+  }
+
   removeConn(conn: Conn): void {
     for (const slot of this.slots) {
       if (slot.display === conn) slot.display = null;
@@ -279,9 +300,20 @@ export class Room {
       // twice (the heartbeat terminates it, then the close event arrives), and
       // restarting the grace window each time would extend it indefinitely.
       if (slot.controller === conn && slot.droppedAt === null) {
-        // Ten-second grace window; the simulation pauses rather than ending.
-        slot.droppedAt = this.now();
-        logger.info(`${this.code}: seat ${slot.seat} controller dropped`);
+        if (this.phase === 'live' || this.phase === 'preparing') {
+          // Mid-match: freeze rather than forfeit. Ten-second grace window, then
+          // the point is awarded — see tick().
+          slot.droppedAt = this.now();
+          logger.info(`${this.code}: seat ${slot.seat} controller dropped`);
+        } else {
+          // Outside a match there is nothing to hold the seat for, and holding it
+          // is actively wrong: the lobby goes on showing a player who has closed
+          // the tab, and the next phone to walk up finds the seat taken by a
+          // ghost. Give it back, with a fresh token — pair tokens are single-use,
+          // so reusing the old one fails the next scan and looks like a broken QR.
+          this.releaseSeat(slot);
+          logger.info(`${this.code}: seat ${slot.seat} released (left the lobby)`);
+        }
       }
     }
     this.touch();
@@ -453,7 +485,11 @@ export class Room {
     const slot = this.slots[lane(seat)];
     if (slot.pointReady) return;
     slot.pointReady = true;
-    if (this.bothPointReady) this.pointReadyAt = this.now();
+    if (this.bothPointReady) {
+      this.pointReadyAt = this.now();
+      this.pointReadyDelay =
+        TUNING.serve.readyDelayMs + Math.random() * TUNING.serve.readyDelayJitterMs;
+    }
     // Out of band rather than on the next 400 ms LITE: the other phone is
     // showing a lamp for this, and a lamp that takes half a second to light
     // reads as a button that missed.
@@ -489,7 +525,7 @@ export class Room {
   private serveGate(now: Millis): boolean {
     if (this.match.phase !== 'serve') return false;
     if (!this.bothPointReady) return true;
-    return now - this.pointReadyAt < TUNING.serve.readyDelayMs;
+    return now - this.pointReadyAt < this.pointReadyDelay;
   }
 
   requestServe(seat: Seat): void {
@@ -650,6 +686,37 @@ export class Room {
     });
     this.recorder?.start(this.sport.id, this.names(), this.seed);
     logger.info(`${this.code}: match started (${this.names().join(' vs ')})`);
+    this.touch();
+  }
+
+  /**
+   * Call the match off and hand the room back to the lobby.
+   *
+   * The bots go with it. They were seated by `start()` to fill whatever nobody
+   * was holding, and leaving them behind means the next match begins with an
+   * opponent nobody asked for — and with `readyToStart` already satisfied, so it
+   * could begin on its own before anybody had picked a sport.
+   */
+  abort(): void {
+    if (this.phase === 'lobby') return;
+    this.phase = 'lobby';
+    this.director.reset();
+    this.match.reset(this.sport);
+    this.clearPointReady();
+    this.serveRequests = [];
+    for (const slot of this.slots) {
+      if (slot.bot !== null) {
+        slot.bot = null;
+        this.match.setBot(slot.seat, false);
+      }
+      // A seat is ready again only if somebody is actually holding it.
+      slot.ready = slot.controller !== null;
+      slot.paused = false;
+    }
+    this.recorder?.close();
+    this.toDisplays({ t: 'MATCH_ABORT' });
+    for (const slot of this.slots) slot.controller?.send({ t: 'CUE', kind: 'match_end' });
+    logger.info(`${this.code}: match abandoned`);
     this.touch();
   }
 

@@ -29,7 +29,7 @@ import {
   type SwingInput,
   type Vec3,
 } from '@rally/protocol';
-import { DT, finite, playMatch } from './helpers.js';
+import { DT, finite, makeMatch, playMatch, tickInput } from './helpers.js';
 
 // ── W3 exit criteria ──────────────────────────────────────────────────────────
 
@@ -122,6 +122,51 @@ describe('simulation invariants (W3 exit criteria)', () => {
       const score = match.getScore();
       expect(Math.max(...score.points)).toBeGreaterThanOrEqual(sport.scoring.pointsToWin);
     }
+  });
+});
+
+// ── The ready-up gate ─────────────────────────────────────────────────────────
+
+describe('the ready-up gate', () => {
+  /**
+   * Every sport, not just table tennis. The gate lives in the room and is handed
+   * to whichever engine the sport runs on, so this asks the question of all of
+   * them rather than trusting that one passing means the rest do.
+   */
+  it('holds the serve on every playable sport until the gate opens', () => {
+    for (const sport of playableSports()) {
+      const { match } = makeMatch(sport.id);
+      match.start(0);
+      let t = 0;
+      // Two seconds of gated ticks. Nothing may leave the server's hand.
+      for (let i = 0; i < 120; i++) {
+        t += DT * 1000;
+        match.step(DT, { ...tickInput(t), serveGate: true });
+      }
+      expect(match.phase, `${sport.id} served through a closed gate`).toBe('serve');
+
+      // Open it, and play resumes without anything else changing.
+      for (let i = 0; i < 240 && match.phase === 'serve'; i++) {
+        t += DT * 1000;
+        match.step(DT, { ...tickInput(t), serveGate: false, serveRequests: [0, 1] });
+      }
+      expect(match.phase, `${sport.id} never served once the gate opened`).not.toBe('serve');
+    }
+  });
+
+  it('opens the gate anyway once the auto-serve deadline passes', () => {
+    // The fail-open. A phone on a stale bundle cannot send READY_POINT at all,
+    // and a gate with no way out is a court where nothing happens again.
+    const { match } = makeMatch('pickleball');
+    match.start(0);
+    let t = 0;
+    const limit = TUNING.serve.autoServeAfterMs + 2000;
+    while (t < limit && match.phase === 'serve') {
+      t += DT * 1000;
+      match.step(DT, { ...tickInput(t), serveGate: true });
+    }
+    expect(match.phase).not.toBe('serve');
+    expect(t).toBeGreaterThan(TUNING.serve.autoServeAfterMs);
   });
 });
 

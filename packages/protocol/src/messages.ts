@@ -104,6 +104,15 @@ export type C2S =
    * laptop to press the only rematch button is the whole reason this exists.
    */
   | { t: 'REMATCH' }
+  /**
+   * Abandon the match and go back to the lobby.
+   *
+   * From either end, for the same reason REMATCH is: the person who wants out
+   * is whoever is holding the thing they are holding. A match with a bot in it
+   * has no opponent to strand, and one with a human in it strands them either
+   * way — better a court everyone can see is empty than one nobody can leave.
+   */
+  | { t: 'ABORT' }
   | { t: 'PAUSE'; paused: boolean };
 
 // ── display → server ──────────────────────────────────────────────────────────
@@ -133,6 +142,7 @@ export type D2S =
   | { t: 'READY' }
   | { t: 'START' }
   | { t: 'REMATCH' }
+  | { t: 'ABORT' }
   | { t: 'AUDIO_UNLOCKED' }
   | { t: 'MUTE'; muted: boolean }
   /** Dev-only live constant tuning (`tools/tune`). */
@@ -258,6 +268,8 @@ export type S2D =
   | { t: 'CUE_TEXT'; id: string; text: string }
   | { t: 'CUE_STREAM_END'; id: string }
   | { t: 'MATCH_END'; winner: Seat; final: [number, number]; summary: string[] }
+  /** Somebody called it off. Back to the lobby, no winner, no summary. */
+  | { t: 'MATCH_ABORT' }
   | { t: 'TUNING'; values: Record<string, number> }
   | { t: 'ERROR'; code: string; message: string };
 

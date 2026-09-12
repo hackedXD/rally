@@ -211,6 +211,13 @@ export class SessionManager {
         return;
       }
 
+      case 'ABORT': {
+        const room = this.roomOf(conn);
+        room?.abort();
+        if (room) this.refresh(room);
+        return;
+      }
+
       case 'AUDIO_UNLOCKED':
         conn.audioUnlocked = true;
         return;
@@ -270,6 +277,10 @@ export class SessionManager {
         // likely to be holding the phone as looking at the screen when a match
         // ends.
         room.rematch();
+        return;
+      case 'ABORT':
+        room.abort();
+        this.refresh(room);
         return;
       case 'PAUSE':
         room.setPaused(seat, msg.paused);

@@ -109,6 +109,16 @@ export function Hud({ client, ownSeat }: Props) {
         <span className={`chip${rtt > 160 ? ' warn' : ''}`}>{Math.round(rtt)} ms</span>
         {client.snapshots.depth < 2 && <span className="chip warn">Buffering</span>}
         {muted && <span className="chip warn">Muted</span>}
+        {/* The way out. A match you cannot leave is the one everybody remembers,
+            and the phone has the same button — whoever wants out is holding
+            whatever they happen to be holding. */}
+        <button
+          className="chip act"
+          onClick={() => client.abort()}
+          title="End this match and go back to the lobby"
+        >
+          Exit match
+        </button>
       </div>
     </div>
   );

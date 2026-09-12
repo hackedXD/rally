@@ -307,6 +307,12 @@ export function Room({ client, onStart, onPlayHere, onTutorial, onBackToRack }: 
           <button onClick={() => client.addBot(0.55)} disabled={preparing || paired === 2}>
             Add bot
           </button>
+          {/* A way out of a room that has gone wrong — a phone that will not
+              pair, a code somebody else is already using — without reloading the
+              page and losing the sport you picked. */}
+          <button onClick={() => client.newRoom()} disabled={preparing}>
+            New room
+          </button>
           <div className="spacer" />
           {room && (
             <div className="invite">

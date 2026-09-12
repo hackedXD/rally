@@ -12,6 +12,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
+import { Socket } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { TUNING, flattenTuning, hrNowMs, makeServerClock } from '@rally/protocol';
 import { SPORT_ORDER, getSport } from '@rally/sim';
@@ -131,6 +132,13 @@ app.server.on('upgrade', (req, socket, head) => {
     socket.destroy();
     return;
   }
+  // Nagle's algorithm holds a small packet back waiting for company, and every
+  // frame here is small: a pose is a handful of bytes, sent 30 times a second,
+  // and each one is useless a frame later. Up to 40 ms of delay for a bandwidth
+  // saving nobody asked for. Off costs nothing and is felt immediately.
+  // (The upgrade handler is typed as a bare Duplex; on a TCP upgrade it is
+  // always a net.Socket, which is the thing that has the option.)
+  if (socket instanceof Socket) socket.setNoDelay(true);
   wss.handleUpgrade(req, socket, head, (ws) => {
     const conn = new Conn(ws, serverNow);
     connOrigin.set(conn, originFromHeaders(req.headers as Record<string, unknown>));

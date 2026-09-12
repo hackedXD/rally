@@ -660,6 +660,11 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
 }
 .chip.warn { color: var(--optic); border-color: var(--optic); }
 .chip.bad { color: var(--flag); border-color: var(--flag); }
+/* A chip that does something. Secondary-button behaviour — tape border, inverts
+   on hover — in the chip strip's size, so it sits in the row it belongs to
+   without becoming a second primary action on a screen that already has one. */
+button.chip { cursor: pointer; font-family: inherit; }
+button.chip:hover, button.chip:focus-visible { background: var(--line); color: var(--ink-blue); }
 
 .top-right { position: absolute; top: 18px; right: 18px; display: flex; gap: 8px; pointer-events: auto; }
 
@@ -814,8 +819,16 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
 .tune input[type='range'] { width: 100%; accent-color: var(--optic); }
 .tune label i { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--line); }
 
+/*
+ * Errors land on the apron at the top, not in the middle of the court.
+ *
+ * Dead centre is where the room puts its primary action — the design is a court
+ * split by a net with the button across the net line — so a centred toast landed
+ * squarely on top of START MATCH and made both unreadable.
+ */
 .toast {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  position: absolute; top: 84px; left: 50%; transform: translateX(-50%);
+  z-index: 40;
   background: var(--flag); color: var(--line);
   border: var(--tape) solid var(--line);
   padding: 16px 22px; max-width: 460px; text-align: center;

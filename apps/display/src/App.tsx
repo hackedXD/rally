@@ -117,6 +117,17 @@ export function App() {
         useGame.getState().setTutorial(false);
         feel.cancelReplay();
       },
+      onMatchAbort: () => {
+        const g = useGame.getState();
+        // Everything the end card would have cleared, cleared without one: there
+        // is no result to show, and a stale winner would flash on the way past.
+        g.clearResult();
+        g.setTutorial(false);
+        g.setScreen('lobby');
+        g.setLobbyStep('room');
+        feel.cancelReplay();
+        audio.stopCrowd();
+      },
       onLobbyStatus: (text, progress, done) => {
         const g = useGame.getState();
         g.setLobbyStatus(text, progress, done);
@@ -124,7 +135,9 @@ export function App() {
       },
       onTuning: (values) => useGame.getState().setTuning(values),
       onError: (code, message) => {
-        useGame.getState().setError(`${code}: ${message}`);
+        // The message is written for a person; the code is for the console.
+        console.warn('[rally]', code, message);
+        useGame.getState().setError(message);
         setTimeout(() => useGame.getState().setError(null), 5000);
       },
     });

@@ -87,6 +87,7 @@ export const c2sSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('READY'), name: nameField }),
   z.object({ t: z.literal('READY_POINT') }),
   z.object({ t: z.literal('REMATCH') }),
+  z.object({ t: z.literal('ABORT') }),
   z.object({ t: z.literal('PAUSE'), paused: z.boolean() }),
 ]);
 
@@ -110,6 +111,7 @@ export const d2sSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('READY') }),
   z.object({ t: z.literal('START') }),
   z.object({ t: z.literal('REMATCH') }),
+  z.object({ t: z.literal('ABORT') }),
   z.object({ t: z.literal('AUDIO_UNLOCKED') }),
   z.object({ t: z.literal('MUTE'), muted: z.boolean() }),
   z.object({ t: z.literal('TUNE'), patch: tuningPatchSchema }),
@@ -247,6 +249,7 @@ export const s2dSchema = z.discriminatedUnion('t', [
     final: z.tuple([num, num]),
     summary: z.array(z.string()),
   }),
+  z.object({ t: z.literal('MATCH_ABORT') }),
   z.object({ t: z.literal('TUNING'), values: z.record(z.string(), num) }),
   z.object({ t: z.literal('ERROR'), code: z.string(), message: z.string() }),
 ]);

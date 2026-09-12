@@ -184,10 +184,16 @@ export interface Tuning {
      *
      * Without it the serve lands on the same frame as the tap, which reads as
      * the game jumping the gun — you are still lowering the phone from the
-     * button when the ball is already past you. Two seconds is enough to get the
-     * bat up and no longer than a player would take between points anyway.
+     * button when the ball is already past you.
+     *
+     * This is the pause a server takes to bounce the ball and look up, so it is
+     * short: two seconds was a machine waiting out a timer, and it felt like
+     * one. Jittered for the same reason — a beat identical to the millisecond,
+     * twenty times a match, is the tell that nobody is on the other end.
      */
     readyDelayMs: number;
+    /** Random extra on top of `readyDelayMs`, ms. Nobody is metronomic. */
+    readyDelayJitterMs: number;
   };
   bot: {
     /** 0 = helpless, 1 = frame-perfect. */
@@ -337,7 +343,8 @@ export const DEFAULT_TUNING: Tuning = {
     assist: 0.85,
     autoServeAfterMs: 12_000,
     holdHeight: 0.95,
-    readyDelayMs: 2000,
+    readyDelayMs: 850,
+    readyDelayJitterMs: 500,
   },
   bot: {
     skill: 0.55,

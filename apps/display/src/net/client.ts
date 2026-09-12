@@ -53,6 +53,7 @@ export interface ClientHandlers {
   onMatchStart(sport: SportId, names: [string, string]): void;
   onEvent(e: GameEvent): void;
   onMatchEnd(winner: Seat, final: [number, number], summary: string[]): void;
+  onMatchAbort(): void;
   onLobbyStatus(text: string, progress: number, done: boolean): void;
   onTuning(values: Record<string, number>): void;
   onError(code: string, message: string): void;
@@ -217,6 +218,10 @@ export class RallyClient {
         this.handlers.onMatchEnd(msg.winner, msg.final, msg.summary);
         return;
 
+      case 'MATCH_ABORT':
+        this.handlers.onMatchAbort();
+        return;
+
       case 'LOBBY_STATUS':
         this.handlers.onLobbyStatus(msg.text, msg.progress, msg.done);
         return;
@@ -296,6 +301,18 @@ export class RallyClient {
    * `joinCode` is updated too, so a reconnect lands back in the friend's room
    * rather than silently creating a fresh empty one.
    */
+  /**
+   * Abandon this room and open a fresh one on the same sport.
+   *
+   * `joinCode` has to be cleared or the reconnect path re-joins the room we are
+   * trying to leave — it is the "which room did this screen want" memory, and a
+   * stale one is why a new room would silently turn back into the old one.
+   */
+  newRoom(): void {
+    this.joinCode = null;
+    this.send({ t: 'ROOM_CREATE', sport: this.pendingSport });
+  }
+
   joinRoom(code: string): void {
     const room = code.trim().toUpperCase();
     if (room.length !== 4) return;
@@ -305,6 +322,11 @@ export class RallyClient {
 
   start(): void {
     this.send({ t: 'START' });
+  }
+
+  /** Call the match off. Everyone in the room goes back to the lobby. */
+  abort(): void {
+    this.send({ t: 'ABORT' });
   }
 
   rematch(): void {

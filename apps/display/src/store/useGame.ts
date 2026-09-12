@@ -69,6 +69,8 @@ export interface GameState {
   setNames(names: [string, string]): void;
   setLobbyStatus(text: string, progress: number, done: boolean): void;
   setResult(winner: Seat, final: [number, number], summary: string[]): void;
+  /** Drop a result without showing one. An abandoned match has no winner. */
+  clearResult(): void;
   setSubtitle(text: string): void;
   showBanner(big: string, sub?: string, ttl?: number): void;
   setMuted(muted: boolean): void;
@@ -127,6 +129,7 @@ export const useGame = create<GameState>((set) => ({
   setLobbyStatus: (text, progress, done) => set({ lobbyStatus: { text, progress, done } }),
   setResult: (winner, final, summary) =>
     set({ result: { winner, final, summary }, screen: 'over' }),
+  clearResult: () => set({ result: null }),
   setSubtitle: (text) => set({ subtitle: { text, at: performance.now() } }),
   showBanner: (big, sub = '', ttl = 1800) =>
     set({ banner: { big, sub, at: performance.now(), ttl } }),
