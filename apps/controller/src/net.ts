@@ -10,6 +10,7 @@
  * server, which is the only way a message-ordering bug is ever caught.
  */
 
+import { leadPose } from '@rally/motion';
 import {
   ClockSync,
   TUNING,
@@ -63,8 +64,17 @@ export class ControllerNet {
   /** Latest pose, flushed on a timer rather than sent from the sensor callback. */
   private pendingPose: Quat | null = null;
   private pendingCt = 0;
+  private pendingOmega: Vec3 = [0, 0, 0];
   private pendingReach = 0;
+  private pendingSway = 0;
   private pendingHold = false;
+
+  /**
+   * Horizon the last flushed pose was rotated forward by, ms. Reported on the
+   * phone's own readout: prediction is invisible right up until it is the reason
+   * nothing works, which is the wrong moment to start guessing at it.
+   */
+  leadMs = 0;
 
   constructor(
     private readonly url: string,
@@ -135,26 +145,48 @@ export class ControllerNet {
     ws.onerror = () => this.handlers.onState('closed');
   }
 
-  /** Buffered; flushed on a timer so the sensor callback never touches the socket. */
-  pose(q: Quat, ct: number, reach = 0, hold = false): void {
+  /**
+   * Buffered; flushed on a timer so the sensor callback never touches the socket.
+   *
+   * `omegaDeg` is the paddle's rotation rate in its own axes, straight off the
+   * gyro. It is buffered alongside the pose rather than sent: what goes on the
+   * wire is one predicted pose, and the rate is what predicts it.
+   */
+  pose(q: Quat, ct: number, omegaDeg: Vec3, reach = 0, sway = 0, hold = false): void {
     this.pendingPose = q;
     this.pendingCt = ct;
+    this.pendingOmega = omegaDeg;
     this.pendingReach = reach;
+    this.pendingSway = sway;
     this.pendingHold = hold;
   }
 
   private flushPose(): void {
     if (!this.pendingPose || this.ws?.readyState !== WebSocket.OPEN) return;
+    // Latency compensation. The sample has been sitting here since the sensor
+    // fired — up to a flush interval — and the wire is about to cost half a round
+    // trip on top, so send where the paddle WILL be rather than where it was.
+    // Both halves of that are measured; see `leadTime`.
+    const { q, leadMs } = leadPose(
+      this.pendingPose,
+      this.pendingOmega,
+      performance.now() - this.pendingCt,
+      this.clock.rtt,
+    );
+    this.leadMs = leadMs;
     this.send({
       t: 'POSE',
       seq: this.seq++,
-      ct: this.pendingCt,
-      q: quantQuat(this.pendingPose),
+      // The moment the pose being sent is FOR, which is no longer the moment it
+      // was sampled. Stamping it with the sample time would leave anything
+      // downstream that reasons about pose age off by exactly the lead.
+      ct: this.pendingCt + leadMs,
+      q: quantQuat(q),
       // Table tennis only, and omitted rather than zeroed when it does not
       // apply — a field that is always there and always 0 invites somebody to
       // read it as "the hand is at neutral" rather than "not this sport".
-      ...(this.pendingReach !== 0 || this.pendingHold
-        ? { z: r(this.pendingReach), hold: this.pendingHold }
+      ...(this.pendingReach !== 0 || this.pendingSway !== 0 || this.pendingHold
+        ? { z: r(this.pendingReach), dx: r(this.pendingSway), hold: this.pendingHold }
         : {}),
     });
     this.pendingPose = null;

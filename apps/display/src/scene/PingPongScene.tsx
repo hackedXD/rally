@@ -18,6 +18,7 @@ import { lane, type Seat, type Vec3 } from '@rally/protocol';
 import type { RallyClient } from '../net/client.js';
 import type { RenderState } from '../net/snapshots.js';
 import { feel } from '../store/feel.js';
+import { PALETTE } from '../theme.js';
 import {
   BAT_DROP,
   PP,
@@ -87,7 +88,7 @@ export function PingPongScene({ client, ownSeat, view }: Props) {
   const { camera } = useThree();
 
   const table = useMemo(() => buildTable(), []);
-  const bats = useMemo(() => [makeBat(0), makeBat(1)], []);
+  const bats = useMemo(() => [makeBat(0, seat === 0), makeBat(1, seat === 1)], [seat]);
   useEffect(
     () => () => {
       table.dispose();
@@ -353,16 +354,16 @@ export function PingPongScene({ client, ownSeat, view }: Props) {
 
   return (
     <>
-      <color attach="background" args={['#0b0f14']} />
-      <fog attach="fog" args={['#0b0f14', 7, 18]} />
+      <color attach="background" args={[PALETTE.apronDeep]} />
+      <fog attach="fog" args={[PALETTE.apronDeep, 8, 20]} />
 
-      <hemisphereLight args={['#dceeff', '#161f2b', 1.25]} />
+      <hemisphereLight args={[PALETTE.chalk, PALETTE.apronDeep, 1.45]} />
       <directionalLight position={[2.5, 5, 1.5]} intensity={1.25} castShadow>
         <orthographicCamera attach="shadow-camera" args={[-3, 3, 3, -3, 0.5, 14]} />
       </directionalLight>
-      <directionalLight position={[-2, 3, -3]} intensity={0.5} color="#bcd8f0" />
+      <directionalLight position={[-2, 3, -3]} intensity={0.5} color={PALETTE.chalk} />
       {/* a low rim light picks the ball and the net tape out against the dark end */}
-      <directionalLight position={[0, 1.2, -4]} intensity={0.5} color="#8fd0ff" />
+      <directionalLight position={[0, 1.2, -4]} intensity={0.5} color={PALETTE.chalk} />
 
       <primitive object={table.group} />
       {bats.map((b, i) => (
@@ -371,11 +372,11 @@ export function PingPongScene({ client, ownSeat, view }: Props) {
 
       <mesh ref={ball} castShadow>
         <sphereGeometry args={[1, 32, 20]} />
-        <meshStandardMaterial color="#ffffff" emissive="#7d90a6" roughness={0.5} />
+        <meshStandardMaterial color={PALETTE.optic} emissive={PALETTE.optic} emissiveIntensity={0.3} roughness={0.5} />
       </mesh>
       <mesh ref={shadow} rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[1, 24]} />
-        <meshBasicMaterial color="#030a12" transparent opacity={0.4} depthWrite={false} />
+        <meshBasicMaterial color={PALETTE.ink} transparent opacity={0.38} depthWrite={false} />
       </mesh>
       <primitive object={trail} />
     </>

@@ -26,6 +26,13 @@ export interface SeatStats {
   longestRally: number;
   swingSpeedSum: number;
   swingCount: number;
+  /**
+   * Running total and count of how early each contact was, ms, positive early.
+   * Table tennis only for now: it is the engine that knows where the one right
+   * moment is. See `contactTiming`.
+   */
+  timingSumMs: number;
+  timingCount: number;
   shots: Record<ShotType, number>;
   /** Winners hit: shots that directly ended a point in their favour. */
   winners: number;
@@ -60,6 +67,8 @@ function emptySeat(): SeatStats {
     longestRally: 0,
     swingSpeedSum: 0,
     swingCount: 0,
+    timingSumMs: 0,
+    timingCount: 0,
     shots,
     winners: 0,
   };
@@ -79,6 +88,23 @@ export function emptyStats(startedAt = 0): MatchStats {
 
 export function avgSwingSpeed(s: SeatStats): number {
   return s.swingCount === 0 ? 0 : s.swingSpeedSum / s.swingCount;
+}
+
+/**
+ * Mean contact timing, ms, positive early. Null when nothing was measured.
+ *
+ * Worth spelling out rather than signing: "you are 40 ms early" is actionable
+ * and "-40" is a number someone has to decode first.
+ */
+export function avgContactTiming(s: SeatStats): number | null {
+  return s.timingCount === 0 ? null : s.timingSumMs / s.timingCount;
+}
+
+/** That mean, as the sentence a player can act on. */
+export function timingAdvice(s: SeatStats): string | null {
+  const mean = avgContactTiming(s);
+  if (mean === null || Math.abs(mean) < 12) return null;
+  return `${Math.abs(Math.round(mean))} ms ${mean > 0 ? 'early' : 'late'} on contact`;
 }
 
 /** Most-used shot type, or null before anyone has hit anything interesting. */

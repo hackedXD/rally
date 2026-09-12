@@ -143,6 +143,27 @@ export const PP_FUSION = {
 export const PP_REACH_Z = 0.4;
 
 /**
+ * Metres of sideways travel tracked within one stroke. Mirrors the sim's
+ * REACH_X — see there for why the position freeze has to let this through.
+ */
+export const PP_REACH_X = 0.45;
+
+/**
+ * One step of the sideways travel across a stroke.
+ *
+ * No spring and no leak, unlike `stepReach`: this integral lives for one swing
+ * window and is thrown away at the next onset, so there is nothing for drift to
+ * accumulate into. It is a displacement over ~200 ms, not a position.
+ *
+ * `vRight` is the hand's velocity along the player's right, m/s.
+ */
+export function stepSway(sway: number, vRight: number, dt: number): number {
+  const next = sway + vRight * dt;
+  if (!Number.isFinite(next)) return 0;
+  return Math.max(-PP_REACH_X, Math.min(PP_REACH_X, next));
+}
+
+/**
  * One step of the forward lean.
  *
  * Deliberately the one thing this project otherwise refuses to do — integrate

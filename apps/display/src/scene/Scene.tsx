@@ -22,6 +22,7 @@ import {
 import type { RallyClient } from '../net/client.js';
 import type { RenderState } from '../net/snapshots.js';
 import { feel } from '../store/feel.js';
+import { PALETTE } from '../theme.js';
 import {
   BALL_RADIUS,
   LOOKS,
@@ -35,6 +36,8 @@ import {
 interface Props {
   client: RallyClient;
   court: CourtSpec;
+  /** Lobby framing closes in on the court; match framing is the broadcast one. */
+  framing: 'lobby' | 'match';
   sport: SportId;
   ownSeat: Seat;
 }
@@ -42,7 +45,7 @@ interface Props {
 const tmpV = new THREE.Vector3();
 const tmpQ = new THREE.Quaternion();
 
-export function Scene({ client, court, sport, ownSeat }: Props) {
+export function Scene({ client, court, sport, ownSeat, framing }: Props) {
   const look = LOOKS[sport];
   const ballRadius = BALL_RADIUS[sport];
   const racket = RACKETS[sport];
@@ -74,10 +77,23 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
 
   const { camera, size } = useThree();
   const aspect = size.width / Math.max(1, size.height);
-  const cam = useMemo(
-    () => cameraFor(court, lane(ownSeat), aspect),
-    [court, ownSeat, aspect],
-  );
+  /**
+   * Where the camera stands.
+   *
+   * In a match this is the broadcast position the game is designed around. On
+   * the rack the court is the subject rather than the stage — the sport's name is
+   * stencilled across the playing surface — so the camera closes most of the way
+   * in. The change lands under the match-start banner, which is on screen for
+   * two and a half seconds and hides the cut.
+   */
+  const cam = useMemo(() => {
+    const base = cameraFor(court, lane(ownSeat), aspect);
+    if (framing !== 'lobby') return base;
+    const k = 0.7;
+    const toward = (i: 0 | 1 | 2): number =>
+      base.target[i] + (base.position[i] - base.target[i]) * k;
+    return { ...base, position: [toward(0), toward(1), toward(2)] as [number, number, number] };
+  }, [court, ownSeat, aspect, framing]);
   const back = Math.abs(cam.position[2]);
 
   // Everything that needs to scale with the scene, derived from the camera rather
@@ -304,7 +320,7 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
         ring.current.scale.setScalar(radius);
         const mine = tel.seat === ownSeat;
         const mat = ring.current.material as THREE.MeshBasicMaterial;
-        mat.color.set(mine ? (tel.open ? '#f8fafc' : LOOKS[sport].accent) : '#64748b');
+        mat.color.set(mine ? (tel.open ? PALETTE.optic : PALETTE.line) : PALETTE.apronDeep);
         // Harder balls draw a thinner ring: the difficulty number made visible.
         mat.opacity = (mine ? 0.95 : 0.4) * (1 - tel.difficulty * 0.45);
       }
@@ -328,16 +344,30 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
   const half = court.length / 2;
   const netH = court.netHeight;
 
+  /**
+   * Kit colour.
+   *
+   * One identity rule runs through the whole app — you are in white, your
+   * opponent is in flag orange. Both hold up against a green court and a blue
+   * one, and neither competes with the optic ball for the eye, which is the one
+   * thing on the court that always has to win it.
+   */
+  const kit = (i: number): string => (i === lane(ownSeat) ? PALETTE.line : PALETTE.flag);
+
   return (
     <>
       <color attach="background" args={[look.surround]} />
       <fog attach="fog" args={[look.surround, fogNear, fogFar]} />
 
-      <hemisphereLight args={['#d6e4ff', look.surround, 1.15]} />
-      <ambientLight intensity={0.45} />
+      {/* Daylight. The court is an outdoor acrylic surface under an open sky, so
+          the fill is bright and blue-white and the key is close to overhead —
+          which is also what keeps the painted fields reading as flat paint
+          rather than as lit panels. */}
+      <hemisphereLight args={[PALETTE.chalk, look.surround, 1.05]} />
+      <ambientLight intensity={0.62} />
       <directionalLight
-        position={[shadowSpan * 0.7, shadowSpan * 1.1, -shadowSpan * 0.45]}
-        intensity={2.5}
+        position={[shadowSpan * 0.7, shadowSpan * 1.35, -shadowSpan * 0.45]}
+        intensity={1.5}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-bias={-0.0008}
@@ -349,10 +379,13 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
         />
       </directionalLight>
 
-      {/* Surround */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
+      {/* Surround. Unlit on purpose: a lit plane this large shows the edge of the
+          shadow camera as a pale trapezoid across the apron, and flat paint has
+          no shading to lose. It matches the scene background exactly, so the
+          court reads as floating on one uninterrupted field. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
         <planeGeometry args={[court.width + court.surround * 2, court.length + court.surround * 2]} />
-        <meshStandardMaterial color={look.surround} roughness={0.95} metalness={0} />
+        <meshBasicMaterial color={look.surround} />
       </mesh>
 
       {/* Playing surface */}
@@ -385,7 +418,7 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
             // short of the surface: coplanar faces z-fight.
             <mesh key={i} position={[x, (court.tableHeight - 0.16) / 2, z]} castShadow>
               <boxGeometry args={[0.12, court.tableHeight - 0.16, 0.12]} />
-              <meshStandardMaterial color="#111820" roughness={0.7} />
+              <meshStandardMaterial color={PALETTE.inkBlue} roughness={0.7} />
             </mesh>
           ))}
         </>
@@ -401,19 +434,19 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
               alphaMap={netTex}
               transparent
               opacity={0.92}
-              color="#dbe6f5"
+              color={PALETTE.chalk}
               side={THREE.DoubleSide}
               depthWrite={false}
             />
           </mesh>
           <mesh position={[0, netH + 0.012, 0]}>
-            <boxGeometry args={[court.width, 0.035, 0.02]} />
-            <meshStandardMaterial color="#f8fafc" roughness={0.5} />
+            <boxGeometry args={[court.width, 0.045, 0.022]} />
+            <meshStandardMaterial color={PALETTE.line} roughness={0.55} />
           </mesh>
           {[-1, 1].map((s) => (
             <mesh key={s} position={[(s * court.width) / 2, netH / 2, 0]} castShadow>
               <cylinderGeometry args={[0.028, 0.028, netH, 10]} />
-              <meshStandardMaterial color="#94a3b8" metalness={0.5} roughness={0.4} />
+              <meshStandardMaterial color={PALETTE.line} metalness={0.1} roughness={0.6} />
             </mesh>
           ))}
         </group>
@@ -423,19 +456,19 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
       <mesh ref={ball} castShadow>
         <sphereGeometry args={[1, 20, 16]} />
         <meshStandardMaterial
-          color="#fde047"
-          emissive="#fde047"
-          emissiveIntensity={0.35}
+          color={PALETTE.optic}
+          emissive={PALETTE.optic}
+          emissiveIntensity={0.3}
           roughness={0.45}
         />
       </mesh>
       <mesh ref={ballShadow} rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[1, 24]} />
-        <meshBasicMaterial color="#000000" transparent opacity={0.35} depthWrite={false} />
+        <meshBasicMaterial color={PALETTE.ink} transparent opacity={0.32} depthWrite={false} />
       </mesh>
       <mesh ref={trail} geometry={trailGeo}>
         <meshBasicMaterial
-          color="#fef08a"
+          color={PALETTE.optic}
           transparent
           opacity={0.55}
           depthWrite={false}
@@ -447,11 +480,11 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
       {/* Telegraph and impact rings */}
       <mesh ref={ring} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.82, 1, 48]} />
-        <meshBasicMaterial color="#4ade80" transparent opacity={0.9} depthWrite={false} />
+        <meshBasicMaterial color={PALETTE.line} transparent opacity={0.92} depthWrite={false} />
       </mesh>
       <mesh ref={impact}>
         <sphereGeometry args={[1, 16, 12]} />
-        <meshBasicMaterial color="#fff7ed" transparent opacity={0.6} depthWrite={false} />
+        <meshBasicMaterial color={PALETTE.line} transparent opacity={0.6} depthWrite={false} />
       </mesh>
 
       {/* Players: capsule bodies, sphere heads, a paddle on a stick */}
@@ -460,18 +493,15 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
           <group ref={(g) => (rigs.current[i] = g)}>
             <mesh position={[0, 0.62, 0]} castShadow>
               <capsuleGeometry args={[0.21, 0.72, 6, 14]} />
-              <meshStandardMaterial
-                color={i === lane(ownSeat) ? '#38bdf8' : '#f472b6'}
-                roughness={0.55}
-              />
+              <meshStandardMaterial color={kit(i)} roughness={0.55} />
             </mesh>
             <mesh position={[0, 1.34, 0]} castShadow>
               <sphereGeometry args={[0.15, 20, 16]} />
-              <meshStandardMaterial color="#f8d9b5" roughness={0.7} />
+              <meshStandardMaterial color="#f4d9bd" roughness={0.7} />
             </mesh>
             <mesh position={[0, 0.18, 0]} castShadow>
               <capsuleGeometry args={[0.09, 0.36, 4, 10]} />
-              <meshStandardMaterial color="#1f2937" roughness={0.7} />
+              <meshStandardMaterial color={PALETTE.inkBlue} roughness={0.7} />
             </mesh>
           </group>
           <group ref={(g) => (paddles.current[i] = g)}>
@@ -487,7 +517,7 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
                 <mesh castShadow>
                   <torusGeometry args={[racket.headRadius, racket.thickness, 8, 32]} />
                   <meshStandardMaterial
-                    color={i === lane(ownSeat) ? '#cbd5e1' : '#f5d0e0'}
+                    color={kit(i)}
                     roughness={0.35}
                     metalness={0.5}
                   />
@@ -495,9 +525,9 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
                 <mesh>
                   <circleGeometry args={[racket.headRadius, 32]} />
                   <meshStandardMaterial
-                    color={i === lane(ownSeat) ? '#38bdf8' : '#f472b6'}
-                    emissive={i === lane(ownSeat) ? '#0ea5e9' : '#db2777'}
-                    emissiveIntensity={0.25}
+                    color={kit(i)}
+                    emissive={kit(i)}
+                    emissiveIntensity={0.2}
                     roughness={0.8}
                     side={THREE.DoubleSide}
                     // Strings are mostly air.
@@ -520,13 +550,13 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
               <>
                 <mesh castShadow geometry={paddleGeo.face}>
                   <meshStandardMaterial
-                    color={i === lane(ownSeat) ? '#2563eb' : '#be185d'}
+                    color={kit(i)}
                     roughness={0.72}
                     metalness={0.04}
                   />
                 </mesh>
                 <mesh geometry={paddleGeo.guard}>
-                  <meshStandardMaterial color="#14181f" roughness={0.85} />
+                  <meshStandardMaterial color={PALETTE.ink} roughness={0.85} />
                 </mesh>
                 {/* The throat: a paddle's face does not meet its grip at a point. */}
                 <mesh
@@ -534,7 +564,7 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
                   castShadow
                 >
                   <boxGeometry args={[0.052, 0.04, racket.thickness * 1.4]} />
-                  <meshStandardMaterial color="#14181f" roughness={0.8} />
+                  <meshStandardMaterial color={PALETTE.ink} roughness={0.8} />
                 </mesh>
               </>
             ) : (
@@ -548,7 +578,7 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
                     args={[racket.headRadius, racket.headRadius, racket.thickness, 24]}
                   />
                   <meshStandardMaterial
-                    color={i === lane(ownSeat) ? '#1e293b' : '#3f1d2e'}
+                    color={PALETTE.ink}
                     roughness={0.45}
                     metalness={0.1}
                   />
@@ -558,9 +588,9 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
                     args={[racket.headRadius * 0.87, racket.headRadius * 0.87, 0.004, 24]}
                   />
                   <meshStandardMaterial
-                    color={i === lane(ownSeat) ? '#38bdf8' : '#f472b6'}
-                    emissive={i === lane(ownSeat) ? '#0ea5e9' : '#db2777'}
-                    emissiveIntensity={0.35}
+                    color={kit(i)}
+                    emissive={kit(i)}
+                    emissiveIntensity={0.28}
                     roughness={0.6}
                   />
                 </mesh>
@@ -571,7 +601,7 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
               castShadow
             >
               <cylinderGeometry args={[0.014, 0.02, racket.shaft, 10]} />
-              <meshStandardMaterial color="#111827" roughness={0.8} />
+              <meshStandardMaterial color={PALETTE.ink} roughness={0.8} />
             </mesh>
             {racket.shape === 'paddle' && (
               // The butt cap. A paddle grip flares at the end so it cannot slide
@@ -582,7 +612,7 @@ export function Scene({ client, court, sport, ownSeat }: Props) {
                 castShadow
               >
                 <cylinderGeometry args={[0.024, 0.021, 0.012, 12]} />
-                <meshStandardMaterial color="#0b0f14" roughness={0.9} />
+                <meshStandardMaterial color={PALETTE.ink} roughness={0.9} />
               </mesh>
             )}
           </group>

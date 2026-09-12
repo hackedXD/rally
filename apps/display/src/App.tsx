@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
+import * as THREE from 'three';
 import {
   TUNING,
   lane,
@@ -23,12 +24,14 @@ import { VirtualController, type VirtualState } from './net/virtual.js';
 import { Scene } from './scene/Scene.jsx';
 import { PingPongScene } from './scene/PingPongScene.jsx';
 import type { PpViewName } from './scene/pingpong.js';
-import { COURTS } from './scene/courts.js';
+import { COURTS, targetScore } from './scene/courts.js';
 import { feel } from './store/feel.js';
 import { useGame } from './store/useGame.js';
 import { EndCard } from './ui/EndCard.jsx';
 import { Hud } from './ui/Hud.jsx';
-import { Lobby } from './ui/Lobby.jsx';
+import { Muted } from './ui/icons.jsx';
+import { Room } from './ui/Room.jsx';
+import { SportRack } from './ui/SportRack.jsx';
 import { TimingRing } from './ui/TimingRing.jsx';
 import { Tutorial } from './ui/Tutorial.jsx';
 import { TunePanel } from './ui/TunePanel.jsx';
@@ -97,10 +100,11 @@ export function App() {
         g.setNames(names);
         g.setSport(sport);
         g.setScreen('playing');
-        // Table tennis scores the real game. Every other sport here plays
-        // rally-to-7, which is the locked scoring decision for the shared engine.
-        const target = sport === 'tabletennis' ? 11 : 7;
-        g.showBanner(`${names[0]} vs ${names[1]}`, `First to ${target}, win by 2`, 2400);
+        g.showBanner(
+          `${names[0]} vs ${names[1]}`,
+          `First to ${targetScore(sport)}, win by 2`,
+          2400,
+        );
         feel.reset();
         audio.setSport(sport);
         audio.startCrowd();
@@ -396,16 +400,33 @@ export function App() {
   return (
     <div className={`stage${virtualState && playing ? ' has-vc' : ''}`}>
       <div className="canvas-wrap" ref={canvasWrap}>
+        {/*
+          * Tone mapping off, deliberately. The filmic curve three.js defaults to
+          * is built for photographic range, and it desaturates flat colour on the
+          * way through — a court painted #00c65a arrived on screen as a pastel.
+          * The whole world here is flat acrylic paint, so the pixels should be
+          * the paint.
+          */}
         <Canvas
           shadows
           dpr={[1, 2]}
-          gl={{ antialias: true, powerPreference: 'high-performance' }}
+          gl={{
+            antialias: true,
+            powerPreference: 'high-performance',
+            toneMapping: THREE.NoToneMapping,
+          }}
           camera={{ fov: 35, near: 0.1, far: 200 }}
         >
           {pingpong ? (
             <PingPongScene client={client} ownSeat={ownSeat} view={ppView} />
           ) : (
-            <Scene client={client} court={court} sport={store.sport} ownSeat={ownSeat} />
+            <Scene
+              client={client}
+              court={court}
+              sport={store.sport}
+              ownSeat={ownSeat}
+              framing={playing ? 'match' : 'lobby'}
+            />
           )}
         </Canvas>
       </div>
@@ -415,14 +436,26 @@ export function App() {
         <Tutorial client={client} ownSeat={ownSeat} sport={store.sport} onDone={endTutorial} />
       )}
       {playing && pingpong && <TimingRing client={client} ownSeat={ownSeat} />}
-      {!playing && (
-        <Lobby
-          client={client}
-          onStart={startMatch}
-          onPlayHere={playHere}
-          onTutorial={startTutorial}
-        />
-      )}
+      {/*
+        * Two lobby screens, never both. The rack asks what to play and repaints
+        * the court behind itself as you move along it; the room is that court
+        * seen from above, where phones pair into the side they will play in.
+        */}
+      {!playing &&
+        (store.lobbyStep === 'rack' ? (
+          <SportRack
+            client={client}
+            onTakeCourt={() => useGame.getState().setLobbyStep('room')}
+          />
+        ) : (
+          <Room
+            client={client}
+            onStart={startMatch}
+            onPlayHere={playHere}
+            onTutorial={startTutorial}
+            onBackToRack={() => useGame.getState().setLobbyStep('rack')}
+          />
+        ))}
       {store.screen === 'over' && (
         <EndCard
           ownSeat={ownSeat}
@@ -442,6 +475,7 @@ export function App() {
         // Nobody has touched this screen, so the browser will not let a sound out
         // of it. Say so, rather than being mysteriously silent.
         <button className="sound-prompt" onClick={() => void unlockAudio()}>
+          <Muted />
           Click anywhere for sound
         </button>
       )}

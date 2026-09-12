@@ -176,6 +176,23 @@ export const AIM = {
 // position: it is sprung back to the ready position constantly, hard once the
 // hand stops, so error cannot outlive a rally.
 export const REACH_Z = 0.4; //        metres of forward travel at full stretch
+/**
+ * Metres of SIDEWAYS travel allowed within one stroke.
+ *
+ * The bat's position is frozen while a swing is armed, because a stroke is
+ * mostly wrist and the rotation would otherwise drag the bat across the table on
+ * its own. But changing wings is the hand crossing the body, and crossing the
+ * body turns the wrist fast enough to arm the detector on the way over — so a
+ * blanket freeze pins the bat on the wing you are leaving and the shot comes
+ * back 'reach' or 'wrong wing'. That is not a timing skill anyone can learn: the
+ * bat stops moving at the exact moment you are moving it most.
+ *
+ * Translation is the half of the freeze that should never have been frozen. It
+ * is measured from acceleration for the length of the stroke and thrown away
+ * after, on the same licence as REACH_Z. Capped at a genuine cross-body reach:
+ * past this it is drift, not a player.
+ */
+export const REACH_X = 0.45;
 export const BLADE_R = 0.077; //      ITTF blades are ~15 cm across
 /**
  * The ball meets a slightly bigger disc than the one you can see. Enough that a

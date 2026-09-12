@@ -31,7 +31,7 @@ That plays the whole game with a mouse — no phone required. For the real thing
 | **Names** | Set your own, on the screen or the phone. Remembered between sessions, sanitised before anything says it aloud. |
 | **Opponent** | Another human across the internet, or a built-in bot with a difficulty dial. |
 | **Commentary** | Works with no API keys at all. Add a Gemini key and an ElevenLabs key and the same pipeline upgrades in place. |
-| **Tests** | 140 covering both physics engines, the shot solver, the spin model, sensor fusion, the protocol, the commentary, and full matches over real WebSockets. |
+| **Tests** | 173 covering both physics engines, the shot solver, the spin model, sensor fusion, pose prediction, the protocol, the commentary, and full matches over real WebSockets. |
 
 ---
 
@@ -305,8 +305,67 @@ makes remote play feel local:
 | Entity | Source | Added delay |
 |---|---|---|
 | Your paddle | `LOCALPOSE`, forwarded out of band, 3-sample smoothing | zero |
+| …and the pose it was built from | Rotated forward by the measured trip before it was sent | negative |
 | Ball, opponent, score | Snapshot buffer, interpolated 100 ms behind server time | 100 ms |
 | Your hit reaction | Predicted locally, reconciled by the next snapshot | zero, then corrected |
+
+### Latency compensation on the pose
+
+Every pose the server acts on is old. The sensor sampled, the phone held it until
+the next 30 Hz flush, the wire carried it. Over that gap the paddle kept turning,
+so the paddle the rules see — and the one both displays draw — is the paddle you
+were holding. At 700 deg/s, a 70 ms trip is **49 degrees of paddle face**, which is
+the difference between a flat drive and a chop.
+
+So the phone sends where the paddle is *going to be*. The fix is what VR runtimes
+call timewarp, and it is not a model that has to be trained — it is rigid-body
+kinematics:
+
+```
+q' = q ⊗ exp(ω Δt / 2)
+```
+
+Three things make that help rather than hurt:
+
+- **Constant ω, and deliberately no acceleration term.** Over 40–90 ms a wrist
+  mid-stroke really is turning at a constant rate, so there is little left for a
+  second-order term to win — and the second derivative of a noisy signal is noise.
+  Angular acceleration overshoots hardest exactly when the paddle is moving
+  fastest, which is contact: the one moment the pose has to be right.
+- **The rate is measured, not differenced.** `Fusion.omegaDeg` comes straight off
+  the gyro in the paddle's own axes, so nothing differentiates a quantised 30 Hz
+  pose stream, and the velocity estimate has no lag of its own. It composes on the
+  right for the same reason — that is the frame it is in.
+- **The horizon is measured, not assumed.** Flush age is known exactly and half the
+  round trip comes from the clock sync the protocol already runs, so it costs no
+  new message and no new field. A venue network is the one number nobody can guess
+  from a desk.
+
+**What is deliberately not predicted:** the swing sample, which is contact and was
+measured exactly; and the calibration pose, because a guess about the future is a
+bad thing to anchor a frame to. Both live on their own paths in `sensors.ts`, which
+is what keeps this to the pose and only the pose.
+
+`npm run bench:predict` prints the whole table. A 700 deg/s drive, as degrees
+between the pose the server holds and the paddle the player is holding:
+
+| Round trip | Without | With | Worst frame it hurt by |
+|---|---|---|---|
+| 20 ms | 4.6° | 0.9° | 0.3° |
+| 60 ms | 8.1° | 3.0° | 2.2° |
+| 120 ms | 13.3° | 7.9° | 9.4° |
+| 250 ms | 22.8° | 17.5° | 14.1° |
+
+The last column is the honest cost. A constant rate cannot know about a change of
+direction, so at the top of a backswing it leads the wrong way and that frame ends
+up further out than if nothing had been predicted. It is bounded by
+`predict.maxLeadMs` and it is smaller than the error being removed everywhere else.
+
+That cap is also why the ratio falls off: at 250 ms it is refusing to compensate
+most of the trip on purpose, because past about 90 ms the guess is worth less than
+the lag it hides and one dropped packet would otherwise fling the paddle a quarter
+turn. `predict.leadScale` is a slider from 0, so the whole thing can be A/B'd
+mid-rally against the exact code path that ships.
 
 ### The contact model
 
@@ -466,6 +525,17 @@ things forced that, and none of them is a value a sport module could be handed:
   bought with gravity instead — 3.5 m/s², which lowers the speed a shot needs to
   clear the net rather than moving the net further away.
 
+Because the bat has a position, the stroke has to be allowed to move it. The
+position freezes while a swing is armed — a stroke is mostly wrist, and the
+rotation would otherwise drag the bat across the table on its own. But changing
+wings *is* the hand crossing the body, and crossing the body turns the wrist fast
+enough to arm the detector on the way over, so a blanket freeze parked the bat on
+the wing you were leaving and the shot came back `reach`. The freeze is right
+about rotation and wrong about translation: the phone integrates its sideways
+travel for the length of the stroke and sends it as `dx`, and the bat slides by
+it. A wrist pivot translates almost nothing and so still moves the bat almost
+nothing, which is the whole reason the freeze exists.
+
 The seam is [`MatchEngine`](packages/sim/src/match.ts): a room drives one of those
 and never asks which. Everything downstream — snapshots, events, commentary,
 replays — is identical either way.
@@ -514,6 +584,7 @@ the rally length suggests.
 | `npm run mock:events` | Print the scripted 90-second commentary fixture |
 | `npm run echo` | A WebSocket that echoes, for building the phone with no server |
 | `npm run replay -- <file> --verify` | Re-simulate a recorded match and diff it |
+| `npm run bench:predict` | What pose prediction is worth, in degrees, across four latencies |
 | `npm run serve` | Build, then serve everything from the Node server |
 
 Set `RALLY_RECORD=1` to write every match to `replays/` as JSONL.
@@ -646,4 +717,7 @@ writer and the browser's own voice take over.
   because that is the only place their rich `data` payload exists.
 - **WebRTC direct pose (path B) is not implemented.** The `PoseTransport` seam is
   where it would go; server-forwarded pose measures ~1 ms locally and is well
-  inside budget over wifi.
+  inside budget over wifi. It also got less urgent once the pose started being
+  [predicted forward](#latency-compensation-on-the-pose) by the trip it is about
+  to take: path B would shorten that trip, and the timewarp compensates whatever
+  is left of it, including the two legs a direct connection would not remove.

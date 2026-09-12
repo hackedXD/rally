@@ -472,6 +472,108 @@ describe('the table tennis engine', () => {
     expect(m.currentSnapshot().players[0].p).toEqual(settled);
   });
 
+  it('says how early a contact was, with the sign the advice depends on', () => {
+    // Getting this backwards does not fail loudly — it hands a player coaching
+    // that is exactly inverted, and they act on it. Both seats, because the
+    // table runs both ways and the contact point is mirrored with it.
+    for (const seat of [0, 1] as const) {
+      const d = dirOf(seat);
+      const ideal = -d * (TABLE.LEN / 2 + 0.15);
+      const base = { ...pp.newMatch(seat), phase: 'rally' as const };
+      const y = TABLE.TOP + 0.25;
+      // Coming toward the player, still short of where they should meet it.
+      const early = { ...base, ball: pp.makeBall([0, y, ideal + d * 0.5], [0, 0, -d * 3]) };
+      // Already past it: the player has left it too late.
+      const late = { ...base, ball: pp.makeBall([0, y, ideal - d * 0.4], [0, 0, -d * 3]) };
+
+      expect(pp.contactTiming(early, seat)).toBeGreaterThan(0);
+      expect(pp.contactTiming(late, seat)).toBeLessThan(0);
+      // Half a metre at 3 m/s is about 167 ms of being early.
+      expect(pp.contactTiming(early, seat)).toBeCloseTo(167, -1);
+      // A ball going nowhere is neither early nor late, and must not divide.
+      const still = { ...base, ball: pp.makeBall([0, y, ideal], [0, 0, 0]) };
+      expect(pp.contactTiming(still, seat)).toBeNull();
+    }
+  });
+
+  it('lets the hand cross the body mid-stroke, on both wings and both seats', () => {
+    // The freeze is right about rotation and wrong about translation. Changing
+    // wings IS the hand crossing the body, and crossing the body turns the wrist
+    // fast enough to arm the swing detector on the way over — so freezing
+    // everything parked the bat on the wing being left and the shot came back
+    // 'reach'. The bat stopped moving at the exact moment the player was moving
+    // it most.
+    for (const seat of [0, 1] as const) {
+      const m = new PingPongMatch({
+        sport: getSport('tabletennis'),
+        seed: 4,
+        names: ['A', 'B'],
+      });
+      m.start(0);
+      const q: Quat = [0.2, 0.1, 0, Math.sqrt(1 - 0.05)];
+      let t = 0;
+      // Settle the bat somewhere off centre with the stroke not yet started.
+      for (let i = 0; i < 90; i++) {
+        t += 1000 / 60;
+        m.step(DT, { ...emptyTickInput(t), pose: { [seat]: q }, holdPose: { [seat]: false } });
+      }
+      const settled = m.currentSnapshot().players[seat].p;
+
+      // Now a stroke arms and the hand travels 30 cm to the player's right,
+      // while the pose does not change at all: pure translation.
+      let x = 0;
+      for (let i = 0; i < 30; i++) {
+        t += 1000 / 60;
+        x += 0.01;
+        m.step(DT, {
+          ...emptyTickInput(t),
+          pose: { [seat]: q },
+          sway: { [seat]: x },
+          holdPose: { [seat]: true },
+        });
+      }
+      const moved = m.currentSnapshot().players[seat].p;
+
+      // It followed the hand, and it followed it the right way round: the
+      // player's right is world -x at one end of the table and +x at the other.
+      // Getting this backwards does not look like a frame bug, it looks like
+      // reaching right moving the bat left.
+      const right = seat === 0 ? -1 : 1;
+      expect((moved[0] - settled[0]) * right).toBeCloseTo(0.3, 2);
+      // And nothing else about the bat moved — this is translation only.
+      expect(moved[1]).toBeCloseTo(settled[1], 6);
+    }
+  });
+
+  it('still pins the bat for a stroke that is all wrist', () => {
+    // The other half of the same fix: a wrist pivot translates almost nothing,
+    // so it must still move the bat almost nothing. That is what the freeze is
+    // for, and letting translation through must not cost it.
+    const m = new PingPongMatch({
+      sport: getSport('tabletennis'),
+      seed: 4,
+      names: ['A', 'B'],
+    });
+    m.start(0);
+    let t = 0;
+    for (let i = 0; i < 90; i++) {
+      t += 1000 / 60;
+      m.step(DT, { ...emptyTickInput(t), pose: { 0: [0.2, 0.1, 0, Math.sqrt(1 - 0.05)] as Quat } });
+    }
+    const settled = m.currentSnapshot().players[0].p;
+    // The pose swings hard through the stroke; the hand does not travel.
+    for (let i = 0; i < 30; i++) {
+      t += 1000 / 60;
+      m.step(DT, {
+        ...emptyTickInput(t),
+        pose: { 0: [0.5, -0.3, 0.1, Math.sqrt(1 - 0.35)] as Quat },
+        sway: { 0: 0 },
+        holdPose: { 0: true },
+      });
+    }
+    expect(m.currentSnapshot().players[0].p).toEqual(settled);
+  });
+
   it('serves for a player who never does, so a match cannot wedge', () => {
     // The transplanted rules re-toss forever and charge nothing for it, which is
     // right for one laptop in one room and wrong for a hosted one: a seat whose

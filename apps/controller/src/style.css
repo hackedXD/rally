@@ -1,21 +1,48 @@
 /*
- * One screen, high contrast, readable from a metre away while someone is
+ * The phone — Court Lines.
+ *
+ * One screen, high contrast, readable from a metre away while somebody is
  * swinging. Portrait is locked with CSS rather than fought with orientation
- * events, and every tap target is enormous because the player is not looking at
- * the phone.
+ * events, and every tap target is enormous because the player is looking at the
+ * display, not at this.
+ *
+ * The palette is the display's, repeated here rather than imported: the two apps
+ * are separate bundles and the controller may only import `protocol` and
+ * `motion`. It is the same trade `courts.ts` makes for court dimensions — a few
+ * duplicated values as the price of a boundary worth keeping.
+ *
+ * Only the display face is loaded. Body text runs on the system stack, because
+ * the phone's bundle budget is the thing a judge waits on while holding
+ * somebody else's phone on conference wifi, and a second webfont buys nothing at
+ * arm's length that the first one has not already bought.
  */
 
+@font-face {
+  font-family: 'Bungee';
+  src: url('/c/fonts/bungee-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+2000-206F, U+2122;
+}
+
 :root {
-  --bg: #05080f;
-  --panel: #0e1725;
-  --line: rgba(255, 255, 255, 0.12);
-  --text: #f2f6ff;
-  --dim: #90a0bd;
-  --accent: #4ade80;
-  --accent2: #38bdf8;
-  --warn: #fbbf24;
-  --bad: #f87171;
+  --court: #00c65a;
+  --kitchen: #00a24a;
+  --apron: #0b49d0;
+  --apron-deep: #0a2e8a;
+  --line: #ffffff;
+  --ink: #04220f;
+  --ink-blue: #04143a;
+  --optic: #e3ff33;
+  --chalk: #e8f0ff;
+  --flag: #ff4d2e;
+
+  --tape: 4px;
+  --display: 'Bungee', system-ui, sans-serif;
+  --text: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
   color-scheme: dark;
+  accent-color: var(--optic);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -26,12 +53,16 @@ html, body {
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: manipulation;
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--apron);
+  color: var(--chalk);
+  font-family: var(--text);
+  font-weight: 600;
   -webkit-user-select: none;
   user-select: none;
 }
+
+::selection { background: var(--optic); color: var(--ink); }
+:focus-visible { outline: var(--tape) solid var(--optic); outline-offset: 2px; }
 
 #app {
   position: fixed;
@@ -42,131 +73,197 @@ html, body {
   gap: 12px;
 }
 
-/* ── Gate ─────────────────────────────────────────────────────────────────── */
+/* ── The gate ─────────────────────────────────────────────────────────────────
+   One tap, which grants motion, orientation and the wake lock together, because
+   iOS grants all three only from the same gesture. */
 
 .gate {
-  position: fixed; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 26px; padding: 28px; text-align: center;
-  background: radial-gradient(120% 80% at 50% 20%, #14203a 0%, #05080f 65%);
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 24px; padding: 28px; text-align: center;
+  background: var(--apron);
 }
-.gate h1 { font-size: 46px; margin: 0; letter-spacing: -0.03em; font-weight: 800; }
-.gate h1 span { color: var(--accent); }
-.gate p { color: var(--dim); margin: 0; font-size: 16px; line-height: 1.55; max-width: 320px; }
+.gate h1 { font-family: var(--display); font-size: clamp(38px, 13vw, 58px); margin: 0; line-height: 1; }
+.gate h1 span { color: var(--optic); }
+.gate p { color: var(--chalk); margin: 0; font-size: 16px; line-height: 1.5; max-width: 320px; }
 .gate .room {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 15px; letter-spacing: 0.3em; color: var(--accent2);
+  font-family: var(--display);
+  font-size: 15px; letter-spacing: 0.2em; color: var(--optic);
 }
+
+/* The ball. The only circle in the system, and the thing you are about to hit. */
 .tap {
-  width: min(280px, 78vw); aspect-ratio: 1; border-radius: 50%;
-  border: none; background: linear-gradient(180deg, #34d399, #0f9f6e);
-  color: #03150d; font-size: 28px; font-weight: 800; letter-spacing: -0.01em;
-  box-shadow: 0 22px 60px rgba(16, 185, 129, 0.34);
-  display: grid; place-items: center; line-height: 1.25;
+  width: min(280px, 76vw); aspect-ratio: 1; border-radius: 50%;
+  border: var(--tape) solid var(--line);
+  background: var(--optic);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: clamp(24px, 7.5vw, 31px);
+  line-height: 1.2;
+  display: grid; place-items: center;
+  padding: 22px;
 }
 .tap:active { transform: scale(0.97); }
-.tap.err { background: linear-gradient(180deg, #f87171, #b91c1c); color: #fff; font-size: 19px; padding: 22px; }
+.tap.err { background: var(--flag); color: var(--ink-blue); }
 
-/* ── Calibration ──────────────────────────────────────────────────────────── */
+/* ── Calibration ─────────────────────────────────────────────────────────────
+   1.5 seconds of "hold it like a paddle, pointing at your screen". */
 
-.calib { text-align: center; display: grid; place-items: center; gap: 20px; flex: 1; }
+.calib { text-align: center; display: grid; place-items: center; gap: 20px; flex: 1; align-content: center; }
 .calib .ring { width: 190px; height: 190px; position: relative; }
 .calib .ring svg { transform: rotate(-90deg); }
 .calib .ring .pct {
   position: absolute; inset: 0; display: grid; place-items: center;
-  font-size: 40px; font-weight: 800;
+  font-family: var(--display); font-size: 38px; color: var(--line);
 }
-.calib h2 { margin: 0; font-size: 24px; }
-.calib p { color: var(--dim); margin: 0; font-size: 15px; line-height: 1.5; max-width: 300px; }
+.calib h2 { font-family: var(--display); margin: 0; font-size: 24px; line-height: 1.15; }
+.calib p { color: var(--chalk); margin: 0; font-size: 15px; line-height: 1.5; max-width: 300px; }
 
-/* ── Play ─────────────────────────────────────────────────────────────────── */
+/* ── Playing ──────────────────────────────────────────────────────────────── */
 
 .bar { display: flex; align-items: center; gap: 10px; }
 .bar .name {
-  font-size: 17px; font-weight: 700; flex: 1; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
-  /* A button that looks like the label it replaced, with one dotted hint that
-     it can be tapped. Left-aligned and full-height so the tap target is the
-     whole name rather than the glyphs. */
-  background: none; border: 0; color: inherit; font-family: inherit;
-  text-align: left; padding: 2px 0; min-height: 30px;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.22);
+  font-family: var(--display); font-size: 18px;
+  flex: 0 1 auto; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: none; border: 0; color: var(--line);
+  text-align: left; padding: 2px 2px 3px; min-height: 34px;
+  border-bottom: 2px dashed rgba(255, 255, 255, 0.42);
 }
-.dot { width: 11px; height: 11px; border-radius: 50%; background: var(--accent); flex: none; }
-.dot.warn { background: var(--warn); }
-.dot.bad { background: var(--bad); }
+.bar .spacer { flex: 1; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--optic); flex: none; }
+.dot.warn { background: var(--line); }
+.dot.bad { background: var(--flag); }
 .icon-btn {
-  width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.06); color: var(--text); font-size: 20px;
-  display: grid; place-items: center; flex: none;
+  width: 46px; height: 46px; flex: none;
+  border: var(--tape) solid var(--line);
+  background: transparent; color: var(--line);
+  display: grid; place-items: center; padding: 0;
 }
-.icon-btn.on { background: rgba(248, 113, 113, 0.2); border-color: var(--bad); }
+.icon-btn svg { width: 22px; height: 22px; }
+.icon-btn.on { background: var(--flag); border-color: var(--flag); color: var(--line); }
 
-.score {
-  display: flex; align-items: stretch; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+/* The two sides of the net, in the hand. */
+.score { display: flex; align-items: stretch; border: var(--tape) solid var(--line); }
+.score .s { flex: 1; padding: 14px 10px; text-align: center; background: var(--apron-deep); color: var(--chalk); min-width: 0; }
+.score .s.me { background: var(--court); color: var(--ink); }
+.score .s .l {
+  font-size: 12px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.score .s { flex: 1; padding: 14px 12px; text-align: center; }
-.score .s.me { background: rgba(56, 189, 248, 0.12); }
-.score .s .l { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
-.score .s .v { font-size: 46px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-.score .sep { width: 1px; background: var(--line); }
+.score .s .v { font-family: var(--display); font-size: clamp(40px, 13vw, 54px); line-height: 0.92; font-variant-numeric: tabular-nums; }
+.score .sep { width: var(--tape); background: var(--line); }
 
 .status {
-  text-align: center; font-size: 15px; color: var(--dim);
-  min-height: 24px; transition: color 150ms ease;
+  text-align: center; font-size: 15px; font-weight: 700; color: var(--chalk);
+  min-height: 24px;
 }
-.status.hot { color: var(--warn); font-weight: 650; }
-.status.good { color: var(--accent); font-weight: 650; }
+.status.hot { color: var(--optic); }
+.status.good { color: var(--optic); }
 
+/* The court surface, in your hand. Its border is the tape; the cue states paint
+   the whole field, because a colour change on a 4px edge is invisible to
+   somebody who is looking at the television. */
+/*
+ * Your half of the court, in your hand.
+ *
+ * Striped like one rather than left as a colour field: a tape net line across
+ * it, a centre service line down it, and the non-volley zone painted in the
+ * contrasting green a real court uses. It is the largest surface in the product
+ * and the one a first-timer is holding, so it gets the same lines the court on
+ * the screen has.
+ */
 .swing-area {
-  flex: 1; border-radius: 20px; border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.08), rgba(0, 0, 0, 0.18));
+  flex: 1;
+  border: var(--tape) solid var(--line);
+  background: var(--court);
   display: grid; place-items: center; position: relative; overflow: hidden;
   min-height: 140px;
+  transition: background 90ms linear;
+  --ct-line: var(--line);
 }
-.swing-area .hint { color: var(--dim); font-size: 15px; text-align: center; padding: 0 24px; line-height: 1.5; }
-.swing-area .power {
-  position: absolute; left: 0; bottom: 0; height: 6px;
-  background: linear-gradient(90deg, #38bdf8, #fbbf24, #f87171);
-  transition: width 60ms linear;
+/* The non-volley zone, and the net line at its far edge. */
+.swing-area::before {
+  content: '';
+  position: absolute; left: 0; right: 0; top: 0; height: 26%;
+  background: var(--kitchen);
+  border-bottom: var(--tape) solid var(--ct-line);
+  pointer-events: none;
 }
-.swing-area.incoming { border-color: var(--warn); box-shadow: inset 0 0 60px rgba(251, 191, 36, 0.18); }
-.swing-area.hit { border-color: var(--accent); box-shadow: inset 0 0 80px rgba(74, 222, 128, 0.28); }
-.swing-area.whiff { border-color: var(--bad); box-shadow: inset 0 0 80px rgba(248, 113, 113, 0.22); }
+/* The centre service line, from the baseline up to the zone. */
+.swing-area::after {
+  content: '';
+  position: absolute; left: 50%; top: 26%; bottom: 0; width: 3px;
+  margin-left: -1.5px;
+  background: var(--ct-line);
+  pointer-events: none;
+}
+/* A cue paints the whole field, so the lines go with it rather than floating
+   over a colour they no longer belong to. Tape disappears on the optic flash,
+   so on that one the court is lined in ink instead. */
+.swing-area.incoming::before, .swing-area.hit::before, .swing-area.whiff::before {
+  background: rgba(255, 255, 255, 0.18);
+}
+.swing-area.incoming { --ct-line: var(--ink); }
+.swing-area .hint {
+  position: relative;
+  /* Above the lines. `::after` is a later child than .hint, so the centre
+     service line painted straight through the sentence the plate exists to
+     keep readable. */
+  z-index: 1;
+  color: var(--ink); font-size: 16px; font-weight: 700;
+  text-align: center; line-height: 1.4;
+  background: var(--line);
+  padding: 10px 16px;
+  margin: 26% 14px 0;
+}
+.swing-area.incoming { background: var(--optic); }
+.swing-area.incoming .hint { color: var(--ink); }
+.swing-area.hit { background: var(--court); }
+.swing-area.whiff { background: var(--flag); }
+.swing-area.whiff .hint { color: var(--line); }
 
 .serve-btn {
-  width: 100%; padding: 26px; border-radius: 18px; border: none;
-  background: linear-gradient(180deg, #fbbf24, #d97706); color: #241300;
-  font-size: 28px; font-weight: 800; letter-spacing: 0.02em;
-  box-shadow: 0 14px 40px rgba(217, 119, 6, 0.34);
+  width: 100%; padding: 26px; border: var(--tape) solid var(--line);
+  background: var(--optic); color: var(--ink);
+  font-family: var(--display); font-size: clamp(26px, 8vw, 32px);
 }
 .serve-btn:active { transform: scale(0.985); }
 .serve-btn[hidden] { display: none; }
 
-.foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--dim); }
+.foot { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; color: var(--chalk); }
 .foot span { font-variant-numeric: tabular-nums; }
 
+/* ── Sheets ───────────────────────────────────────────────────────────────── */
+
 .overlay {
-  position: fixed; inset: 0; background: rgba(5, 8, 15, 0.94);
+  position: fixed; inset: 0;
+  background: var(--apron-deep);
   display: grid; place-items: center; text-align: center; padding: 30px; gap: 18px;
 }
-.overlay h2 { margin: 0 0 8px; font-size: 26px; }
-.overlay p { color: var(--dim); margin: 0 0 20px; line-height: 1.5; }
+.overlay h2 { font-family: var(--display); margin: 0 0 10px; font-size: 26px; line-height: 1.15; }
+.overlay p { color: var(--chalk); margin: 0 0 22px; line-height: 1.5; font-size: 15px; }
 .overlay button {
-  padding: 18px 30px; border-radius: 14px; border: none;
-  background: var(--accent); color: #04130d; font-size: 19px; font-weight: 700;
+  padding: 18px 30px; border: var(--tape) solid var(--optic);
+  background: var(--optic); color: var(--ink);
+  font-family: var(--display); font-size: 19px;
 }
 .overlay input {
   display: block; width: 100%; max-width: 320px; margin: 0 auto 18px;
-  padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.06); color: var(--text);
-  /* 16px is the floor below which iOS Safari zooms the page on focus, which on
-     a landscape-locked controller throws the layout away mid-tap. */
-  font-size: 19px; font-weight: 700; text-align: center; font-family: inherit;
+  padding: 14px 16px;
+  border: var(--tape) solid var(--line);
+  background: var(--ink-blue); color: var(--line);
+  font-family: var(--display);
+  /* 16px is the floor below which iOS Safari zooms the page on focus, which
+     throws the layout away mid-tap. */
+  font-size: 21px; text-align: center;
 }
-.overlay input:focus { outline: none; border-color: var(--accent); }
-/* Solid, where the pause sheet is 94%. That one covers the play screen, which
-   is mostly empty space; this one can be opened over a full scoreboard, and six
-   per cent of a score bleeding through the box you are typing a name into is
-   enough to make both unreadable. */
-#name-overlay { background: var(--bg); }
+.overlay input:focus { outline: none; border-color: var(--optic); }
+/* Opaque, because this one can be opened over a full scoreboard and a score
+   bleeding through the box you are typing a name into makes both unreadable. */
+#name-overlay { background: var(--apron); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

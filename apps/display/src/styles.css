@@ -110,11 +110,16 @@ button {
   transition: background 110ms ease, color 110ms ease, transform 70ms ease;
 }
 button:hover:not(:disabled) { background: var(--line); color: var(--ink-blue); }
+.rack-arrow:hover:not(:disabled) { background: currentColor; }
+/* Filled with the ink, the glyph has to be cut out of it in the ground's own
+   colour — otherwise a blue chevron lands on a navy fill. */
+.rack-arrow:hover:not(:disabled) svg { color: var(--ground, var(--apron)); }
 button:active:not(:disabled) { transform: translateY(2px); }
 button:disabled { opacity: 0.38; cursor: default; }
 
-/* The live signal. Optic yellow is the ball, and it marks exactly one thing per
-   screen: the action that starts play. */
+/* The live signal. Optic yellow belongs to the ball and to the three things the
+   ball's presence implies: the action that starts play, the commentator's live
+   voice, and the marker for where you are standing. Nothing else takes it. */
 button.primary {
   font-family: var(--display);
   font-size: clamp(17px, 1.7vw, 23px);
@@ -132,8 +137,11 @@ button.primary:disabled { background: transparent; color: var(--optic); }
    Nothing is drawn over the court. The sport's name is stencilled across the
    surface at sponsor scale and the real court behind it re-stripes as you move. */
 
+/* `--on-ground` is set per sport from that court's own look: the apron floods the
+   whole viewport and is green for badminton, where white type is unreadable. */
 .rack {
   position: absolute; inset: 0;
+  color: var(--on-ground, var(--line));
   display: grid;
   grid-template-rows: auto 1fr auto;
   padding: clamp(20px, 3vw, 40px);
@@ -144,20 +152,28 @@ button.primary:disabled { background: transparent; color: var(--optic); }
 .wordmark {
   font-family: var(--display);
   font-size: clamp(19px, 2vw, 27px);
-  color: var(--line);
+  color: inherit;
   line-height: 1;
   display: flex; align-items: center; gap: 12px;
 }
-/* The ball, and the only circle in the system. */
+/* The ball. Circles are reserved for the ball and for the things that are
+   literally round on a court: this mark, the timing ring, a status light. */
 .wordmark::after {
   content: '';
   width: 0.44em; height: 0.44em; border-radius: 50%;
   background: var(--optic);
 }
 
-.rack-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.rack-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: clamp(12px, 2vw, 28px);
+}
 
 .rack-stage {
+  /* Above the neighbouring courts, so the arrows stay legible where a slab
+     crops in behind them. */
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -165,34 +181,55 @@ button.primary:disabled { background: transparent; color: var(--optic); }
   min-height: 0;
 }
 
+/*
+ * Dropped onto the near half of the court.
+ *
+ * The court is a trapezoid in perspective, so how wide it is depends on how far
+ * down the frame you are. Centred in the stage the stencil straddled the far
+ * baseline and half of every letter landed on the apron, where court ink
+ * measures 2.32:1. Sized to the court and set on the near half it measures
+ * 7.43:1 — and a sponsor name painted on a real court fits inside the lines,
+ * which is the thing being imitated.
+ */
+.rack-title {
+  position: relative;
+  transform: translateY(clamp(0px, 21vh, 220px));
+}
+
 .rack-name {
   font-family: var(--display);
   /* Read from across a room, at the scale a sponsor name is painted on a court.
      Deliberately past the usual display ceiling: this is the first viewport of a
      game shown on a laptop somebody is standing away from. */
-  font-size: clamp(44px, 11.5vw, 168px);
+  font-size: clamp(30px, 6.1vw, 88px);
   line-height: 0.84;
-  color: var(--line);
+  /* Set in the ink the PLAYING SURFACE can hold, not the apron's: the name is
+     painted across the court, and the court is green for one sport and blue for
+     the others. */
+  color: var(--on-surface, var(--line));
   text-align: center;
   margin: 0;
   text-wrap: balance;
-  /* The paint under the letters is doing the contrast work; this keeps the
-     stencil legible where a court line runs directly beneath a stroke. */
-  text-shadow: 0 0 calc(var(--tape) * 6) rgba(4, 20, 58, 0.55);
 }
 .rack-name.stub { color: var(--optic); }
 
 .rack-sub {
   text-align: center;
   font-size: clamp(14px, 1.4vw, 19px);
-  font-weight: 600;
-  color: var(--chalk);
-  margin: 14px auto 0;
+  font-weight: 700;
+  color: var(--ink-blue);
+  /* Tape, not optic. It is a caption on the court, not a live signal. */
+  background: var(--line);
+  padding: 8px 18px;
+  margin: 16px auto 0;
+  width: fit-content;
   max-width: 62ch;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 .rack-arrow {
+  color: inherit;
+  border-color: currentColor;
   width: clamp(56px, 5vw, 78px); height: clamp(56px, 5vw, 78px);
   padding: 0;
   display: grid; place-items: center;
@@ -202,17 +239,63 @@ button.primary:disabled { background: transparent; color: var(--optic); }
 
 .rack-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 
-/* The rack position, as the courts either side of this one. */
+/*
+ * The courts either side of this one, running off both edges of the frame so the
+ * rack reads as a row you are standing in front of rather than a list of four.
+ * Decorative and hidden from assistive tech: the same names are the accessible
+ * labels on the markers below.
+ */
+.rack-neighbour {
+  position: absolute;
+  top: 50%;
+  width: clamp(150px, 17vw, 280px);
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: clamp(120px, 22vh, 230px);
+  padding: 0 clamp(16px, 2vw, 30px);
+  font-family: var(--display);
+  font-size: clamp(30px, 6.1vw, 88px);
+  line-height: 0.84;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.5;
+}
+/* Pulled past the frame so only the near end of the next court shows. */
+.rack-neighbour.prev {
+  left: 0;
+  transform: translate(-58%, -50%);
+  border-right: var(--tape) solid var(--line);
+}
+.rack-neighbour.next {
+  right: 0;
+  transform: translate(58%, -50%);
+  border-left: var(--tape) solid var(--line);
+}
+
+/* The rack position. */
 .rack-markers { display: flex; gap: var(--tape); align-items: flex-end; }
 .rack-markers button {
-  width: clamp(40px, 4vw, 62px); height: 14px;
+  width: clamp(40px, 4vw, 62px); height: 26px;
   padding: 0; border: 0;
-  background: rgba(255, 255, 255, 0.34);
-  transition: background 140ms ease, height 140ms ease;
+  background: currentColor;
+  /* 0.42 measured 2.47:1 over the apron — under the 3:1 floor for a control,
+     and this row is the only thing saying where in the rack you are. */
+  opacity: 0.72;
+  transform: scaleY(0.54);
+  transform-origin: bottom;
+  transition: opacity 140ms ease, transform 140ms ease, background 140ms ease;
 }
-.rack-markers button:hover:not(:disabled) { background: var(--line); }
-.rack-markers button.on { background: var(--optic); height: 26px; }
-.rack-markers button.stub { background: rgba(255, 255, 255, 0.16); }
+.rack-markers button:hover:not(:disabled) { opacity: 0.8; }
+.rack-markers button.on { background: var(--optic); opacity: 1; transform: none; }
+/* A stub is not "nearly invisible" — it is struck through, and its name and
+   label say so too. */
+.rack-markers button.stub {
+  opacity: 0.72;
+  background: transparent;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
 
 /* ── The spec ticket ──────────────────────────────────────────────────────────
    Real numbers, read from the same court spec the renderer builds from, taped to
@@ -230,7 +313,10 @@ button.primary:disabled { background: transparent; color: var(--optic); }
 .ticket div { display: contents; }
 .ticket dt {
   font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--optic);
+  text-transform: uppercase;
+  /* Clearly subordinate to the value beside it without reaching for optic,
+     which belongs to the live signal. 8.58:1 on the plate. */
+  color: #9fb2e8;
 }
 .ticket dd { margin: 0; font-size: 15px; font-weight: 700; color: var(--line); text-align: right; }
 
@@ -242,7 +328,7 @@ button.primary:disabled { background: transparent; color: var(--optic); }
 .room {
   position: absolute; inset: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   padding: clamp(16px, 2.4vw, 34px);
   gap: clamp(12px, 1.6vw, 22px);
   background: var(--apron);
@@ -258,6 +344,7 @@ button.primary:disabled { background: transparent; color: var(--optic); }
 }
 
 .vs {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: stretch;
@@ -270,24 +357,26 @@ button.primary:disabled { background: transparent; color: var(--optic); }
   color: var(--ink);
   padding: clamp(16px, 2vw, 30px);
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 /* The far side of the net is the other paint field, so the two halves are never
    mistaken for each other at a glance across a room. */
-.half.away { background: var(--apron-deep); color: var(--chalk); }
+.half.away { background: var(--ink-blue); color: var(--chalk); }
 /* Designed absence: an open seat is this half painted unlit, showing exactly
    what will fill it. */
-.half.open { background: transparent; border-style: dashed; color: var(--chalk); }
+.half.open { background: var(--apron-deep); border-style: dashed; color: var(--chalk); }
 
-.half-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.half-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .seat-no {
   font-family: var(--display);
   font-size: clamp(34px, 4.4vw, 62px);
   line-height: 0.8;
 }
-.half-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.half-badges { display: flex; gap: 6px; flex-wrap: wrap; }
 .badge {
   font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
   padding: 5px 9px;
@@ -295,7 +384,7 @@ button.primary:disabled { background: transparent; color: var(--optic); }
 }
 .badge.live { background: var(--optic); border-color: var(--optic); color: var(--ink); }
 
-.half-body { display: grid; align-content: center; justify-items: center; gap: 12px; text-align: center; min-height: 0; }
+.half-body { display: grid; align-content: center; justify-items: center; gap: 10px; text-align: center; min-height: 0; }
 
 .player-name {
   font-family: var(--display);
@@ -313,9 +402,12 @@ input.player-name {
   border: 0;
   border-bottom: var(--tape) dashed currentColor;
   text-align: center;
-  padding: 0 4px 4px;
-  width: 100%;
-  max-width: 11ch;
+  padding: 0 6px 4px;
+  /* Sized by the `size` attribute, which tracks the name being typed. A
+     percentage width would draw a dashed rule three times the length of a short
+     name and read as an empty field beside a filled one. */
+  width: auto;
+  max-width: 100%;
   border-radius: 0;
 }
 input.player-name:focus { outline: none; border-bottom-style: solid; border-bottom-color: var(--optic); }
@@ -325,7 +417,7 @@ input.player-name:focus { outline: none; border-bottom-style: solid; border-bott
 /* The QR is taped at the service line of the side it opens. */
 .pair { display: grid; justify-items: center; gap: 10px; }
 .pair-frame {
-  width: 100%; max-width: clamp(140px, 14vw, 212px);
+  width: 100%; max-width: min(clamp(150px, 17vw, 300px), 42vh);
   aspect-ratio: 1;
   background: var(--line);
   padding: 10px;
@@ -338,6 +430,16 @@ input.player-name:focus { outline: none; border-bottom-style: solid; border-bott
   color: var(--optic);
   text-align: center;
 }
+.pair-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  word-break: break-all;
+  max-width: 46ch;
+  opacity: 0.62;
+}
+
 .pair-code {
   font-family: var(--display);
   font-size: clamp(20px, 2.2vw, 32px);
@@ -347,22 +449,27 @@ input.player-name:focus { outline: none; border-bottom-style: solid; border-bott
 
 /* The net. The one place the plane breaks, and where Start lives. */
 .net {
-  width: clamp(72px, 9vw, 150px);
-  display: grid;
-  grid-template-rows: 1fr auto 1fr;
-  justify-items: center;
-  gap: 12px;
-  padding: 0 clamp(8px, 1vw, 18px);
+  position: relative;
+  width: clamp(54px, 6.5vw, 104px);
+  margin: 0 clamp(8px, 1.2vw, 20px);
 }
-.net-cord { width: 100%; background: var(--line); height: var(--tape-heavy); align-self: start; }
+.net-cord { position: absolute; top: 0; left: 0; right: 0; height: var(--tape-heavy); background: var(--line); }
 .net-mesh {
-  width: 100%;
+  position: absolute;
+  inset: var(--tape-heavy) 0 0;
   /* A real mesh, not a decorative stripe: this is the net between the halves. */
   background-image:
-    repeating-linear-gradient(to right, rgba(255,255,255,0.55) 0 2px, transparent 2px 11px),
-    repeating-linear-gradient(to bottom, rgba(255,255,255,0.55) 0 2px, transparent 2px 11px);
+    repeating-linear-gradient(to right, rgba(255,255,255,0.5) 0 2px, transparent 2px 11px),
+    repeating-linear-gradient(to bottom, rgba(255,255,255,0.5) 0 2px, transparent 2px 11px);
 }
-.net-start { display: grid; gap: 10px; justify-items: center; width: 100%; }
+/* Across the net line rather than squeezed inside it. The Start button always
+   says what it is about to do, and some of those sentences are long. */
+.net-start {
+  position: absolute; z-index: 3;
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: grid; justify-items: center;
+}
+.net-start .primary { white-space: nowrap; }
 
 .room-foot { display: grid; gap: 12px; }
 .room-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -391,13 +498,19 @@ input.player-name:focus { outline: none; border-bottom-style: solid; border-bott
   text-transform: uppercase;
 }
 .join input:focus { outline: none; border-color: var(--optic); }
-.join input::placeholder { color: rgba(232, 240, 255, 0.4); }
+.join input::placeholder { color: #9fb2e8; }
 
 button.copied { background: var(--optic); border-color: var(--optic); color: var(--ink); }
 
 .prep { display: grid; gap: 8px; }
 .prep-bar { height: var(--tape-heavy); background: var(--apron-deep); border: 2px solid var(--line); }
-.prep-bar > i { display: block; height: 100%; background: var(--optic); transition: width 220ms ease; }
+.prep-bar > i {
+  display: block; height: 100%; width: 100%;
+  background: var(--optic);
+  transform: scaleX(var(--p, 0));
+  transform-origin: left;
+  transition: transform 220ms ease;
+}
 .prep-txt { font-size: 13px; font-weight: 650; color: var(--chalk); }
 
 .warn-note {
@@ -453,6 +566,22 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
 .scorebug .mid .k { font-size: 10px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--chalk); }
 .scorebug .mid.hot { background: var(--optic); }
 .scorebug .mid.hot .v, .scorebug .mid.hot .k { color: var(--ink); }
+/*
+ * The kit swatch.
+ *
+ * Square, because a circle in this system is a ball. It carries the one identity
+ * rule the whole app shares — you play in white, your opponent in flag orange —
+ * from the scoreboard onto the court and back, so a spectator reading the plate
+ * from across a room can tell which body on screen it belongs to.
+ */
+.kit {
+  width: 15px; height: 15px; flex: none;
+  background: var(--line);
+  box-shadow: 0 0 0 2px var(--ink-blue);
+}
+.kit.them { background: var(--flag); }
+.half .kit { box-shadow: 0 0 0 2px currentColor; }
+
 /* A dropped phone, marked on the plate rather than in a legend. */
 .scorebug .off { width: 11px; height: 11px; border-radius: 50%; background: var(--flag); flex: none; }
 
@@ -464,20 +593,30 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
   font-variant-numeric: tabular-nums;
 }
 
-.banner { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); text-align: center; width: min(90vw, 1100px); }
+.banner {
+  position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; width: min(90vw, 1100px);
+  display: grid; gap: 14px; justify-items: center;
+}
+.banner .big, .banner .sub { display: inline-block; }
 .banner .big {
   font-family: var(--display);
   font-size: clamp(40px, 8vw, 118px);
   line-height: 0.86;
   color: var(--line);
-  text-shadow: 0 0 calc(var(--tape) * 7) rgba(4, 20, 58, 0.7);
+  /* Painted, not blurred. This crosses the court, so it needs its own ground —
+     and the world has no glow in it. */
+  background: var(--ink-blue);
+  box-shadow: 0 0 0 var(--tape) var(--line);
+  padding: 0.14em 0.4em;
   text-wrap: balance;
 }
 .banner .sub {
   font-family: var(--display);
   font-size: clamp(14px, 1.6vw, 23px);
-  color: var(--optic);
-  margin-top: 12px;
+  color: var(--ink);
+  background: var(--optic);
+  padding: 0.3em 0.7em;
 }
 .banner.flash .big { animation: serve-in 420ms cubic-bezier(0.16, 1, 0.3, 1); }
 @keyframes serve-in {
@@ -488,7 +627,7 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
 /* The courtside board. The commentator is the only thing on it, so it needs no
    label saying so. */
 .callboard {
-  position: absolute; bottom: 18px; left: 130px; right: 268px;
+  position: absolute; bottom: 18px; left: 130px; right: 130px;
   margin: 0 auto; max-width: 900px;
   background: var(--optic); color: var(--ink);
   border: var(--tape) solid var(--line);
@@ -546,7 +685,6 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
   line-height: 0.88;
   word-break: break-word;
 }
-.endcard .verdict { font-family: var(--display); font-size: clamp(15px, 1.6vw, 22px); margin-bottom: 6px; }
 .endcard .final {
   font-family: var(--display);
   font-size: clamp(38px, 5.4vw, 74px);
@@ -559,7 +697,7 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
   max-width: 46ch; display: grid; gap: 8px;
 }
 .endcard li { font-size: 15px; font-weight: 650; line-height: 1.45; padding-left: 22px; position: relative; }
-.endcard li::before { content: ''; position: absolute; left: 0; top: 0.52em; width: 11px; height: 11px; border-radius: 50%; background: var(--optic); }
+.endcard li::before { content: ''; position: absolute; left: 0; top: 0.5em; width: 11px; height: 11px; background: var(--optic); }
 .endcard .sheet.lost li::before { background: var(--optic); }
 .endcard .end-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 .endcard .sheet:not(.lost) button:not(.primary) { color: var(--ink); border-color: var(--ink); }
@@ -578,7 +716,14 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
 }
 .vc .t { font-family: var(--display); font-size: 14px; color: var(--line); margin-bottom: 9px; }
 .vc .meter { height: 12px; background: var(--apron-deep); border: 2px solid var(--line); margin: 9px 0; }
-.vc .meter > i { display: block; height: 100%; background: var(--optic); transition: width 60ms linear; }
+.vc .meter > i {
+  display: block; height: 100%; width: 100%;
+  background: var(--optic);
+  transform: scaleX(var(--p, 0));
+  transform-origin: left;
+  /* Written every frame while the swing charges, so it must not touch layout. */
+  transition: transform 60ms linear;
+}
 .vc .row { display: flex; justify-content: space-between; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
 /* ── Table tennis: the timing ring ────────────────────────────────────────────
@@ -624,15 +769,18 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
 .tut-dots i.done { background: var(--line); }
 .tut-dots i.now { background: var(--optic); }
 .tut-skip {
-  position: absolute; top: 10px; right: 12px;
-  padding: 4px 6px; border: 0; background: none;
-  font-size: 11px; letter-spacing: 0.12em;
-  color: transparent;
+  position: absolute; top: 8px; right: 10px;
+  padding: 5px 8px; border: 0; background: none;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--chalk);
+  /* Quiet until the first instruction has been read, then plainly there. Hiding
+     it behind :hover put it out of reach on the iPad this is designed for, and a
+     tutorial you cannot leave is a trap. */
+  opacity: 0;
+  transition: opacity 240ms ease;
 }
-/* It has to exist — a tutorial you cannot leave is a trap — but offering it
-   before the first instruction has been read invites skipping a thing unseen. */
-.tut-card:hover .tut-skip, .tut-skip:focus-visible { color: var(--chalk); }
-.tut-skip:hover { color: var(--optic); }
+.tut-card.offer-skip .tut-skip { opacity: 0.75; }
+.tut-skip:hover, .tut-skip:focus-visible { opacity: 1; color: var(--optic); }
 
 /* ── Tuning panel (development) ───────────────────────────────────────────── */
 
@@ -674,11 +822,14 @@ button.copied { background: var(--optic); border-color: var(--optic); color: var
 
 @media (max-width: 900px) {
   .vs { grid-template-columns: 1fr; grid-template-rows: 1fr auto 1fr; }
-  .net { width: 100%; height: 78px; grid-template-rows: none; grid-template-columns: 1fr auto 1fr; align-items: center; padding: clamp(8px, 2vw, 16px) 0; }
-  .net-cord { width: var(--tape-heavy); height: 100%; align-self: stretch; }
-  .net-mesh { height: 100%; }
-  .rack-stage { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-  .rack-arrows-inline { display: flex; gap: 10px; justify-content: center; }
+  .net { width: auto; height: clamp(56px, 9vh, 92px); margin: clamp(8px, 1.5vh, 16px) 0; }
+  .net-cord { top: 0; bottom: 0; left: 0; right: auto; width: var(--tape-heavy); height: auto; }
+  .net-mesh { inset: 0 0 0 var(--tape-heavy); }
+  /* Arrows move to the bottom corners of the stage rather than flanking a
+     name that no longer has room beside it. */
+  .rack-stage { grid-template-columns: auto 1fr auto; gap: 8px; }
+  .rack-arrow { width: 48px; height: 48px; }
+  .rack-neighbour { display: none; }
   .scorebug .side { min-width: 128px; padding: 8px 12px 10px; gap: 10px; }
   .scorebug .mid { min-width: 70px; }
 }

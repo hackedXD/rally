@@ -53,6 +53,17 @@ export const COURTS: Record<SportId, CourtSpec> = {
 };
 
 /**
+ * The winning score, mirrored from the sport modules for the same reason the
+ * court dimensions are.
+ *
+ * Table tennis scores the real game. Everything else plays rally-to-7, which is
+ * the locked scoring decision for the shared engine.
+ */
+export function targetScore(sport: SportId): number {
+  return sport === 'tabletennis' ? 11 : 7;
+}
+
+/**
  * Reconcile against the server so a change to a sport module is visible here
  * without a redeploy, and a mismatch is loud rather than mysterious.
  */

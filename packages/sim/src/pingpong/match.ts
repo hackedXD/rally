@@ -40,13 +40,14 @@ import { resolveParams, type SimParams } from '../params.js';
 import { makeRng, type Rng } from '../rng.js';
 import { StallWatch } from '../stall.js';
 import type { DerivedState, SportModule } from '../sport.js';
-import { cloneStats, emptyStats, seatOf, type MatchStats } from '../stats.js';
+import { cloneStats, emptyStats, seatOf, timingAdvice, type MatchStats } from '../stats.js';
 import type { Simulation, TickInput } from '../match.js';
 import { newPpBot, stepPpBot, type PpBotState } from './bot.js';
 import {
   AIM,
   PADDLE,
   REACH_Z,
+  rightOf,
   TABLE,
   WIN_SCORE,
   dirOf,
@@ -57,6 +58,7 @@ import {
   NEUTRAL,
   aimEase,
   aimFromPose,
+  contactTiming,
   applySwing as applyPpSwing,
   canHit,
   newMatch,
@@ -125,6 +127,12 @@ export class PingPongMatch implements Simulation {
   private face: [number, number] = [0, 0];
   /** Depth lean from the phone, per seat. */
   private reach: [number, number] = [0, 0];
+  /**
+   * Cross-body travel already applied for the stroke in progress, per seat.
+   * Held so the slide is by the DELTA each tick rather than by the total, which
+   * would re-apply the whole reach on every one.
+   */
+  private sway: [number, number] = [0, 0];
 
   private events: GameEvent[] = [];
   private stats: MatchStats;
@@ -193,6 +201,7 @@ export class PingPongMatch implements Simulation {
     this.stall.reset();
     this.face = [0, 0];
     this.reach = [0, 0];
+    this.sway = [0, 0];
     for (const seat of LANE) this.bots[seat].state = newPpBot();
   }
 
@@ -316,7 +325,37 @@ export class PingPongMatch implements Simulation {
         this.reach[seat] = Math.max(-REACH_Z, Math.min(REACH_Z, z as number));
       }
       const prev = this.state.hands[seat];
-      if (input.holdPose?.[seat] && prev) continue;
+      if (input.holdPose?.[seat] && prev) {
+        // The freeze is right about rotation and wrong about translation.
+        //
+        // Changing wings is the hand CROSSING THE BODY, and crossing the body
+        // turns the wrist fast enough to arm the swing detector on the way over
+        // — so freezing everything pinned the bat on the wing being left, and
+        // the shot that followed came back 'reach' or 'wrong wing'. Not a
+        // timing skill anyone can learn: the bat stops moving at the exact
+        // moment the player is moving it most.
+        //
+        // So slide by how far the hand actually TRAVELLED. A wrist pivot
+        // translates almost nothing and so still moves the bat almost nothing,
+        // which is the whole reason the freeze exists and it survives intact.
+        //
+        // `rightOf`, because `dx` arrives in the PLAYER's frame and hands live
+        // in the world's. Same conversion `aimFromPose` does, same one that has
+        // been inverted more than once — asserted for both seats.
+        const dx = input.sway?.[seat];
+        if (Number.isFinite(dx)) {
+          const travel = (dx as number) - this.sway[seat];
+          this.sway[seat] = dx as number;
+          const x = prev.x + travel * rightOf(seat);
+          this.state = setHand(this.state, seat, {
+            ...prev,
+            x: Math.max(-AIM.SPAN_X, Math.min(AIM.SPAN_X, x)),
+          });
+        }
+        continue;
+      }
+      // Between strokes there is no window to be part-way through.
+      this.sway[seat] = 0;
 
       // Thread the last face back in: the choice is hysteretic, so a bat held
       // edge-on cannot flicker between its two sides — which would read as the
@@ -506,6 +545,16 @@ export class PingPongMatch implements Simulation {
     this.state = next;
     const ev = next.lastEvent;
     const speed = ev?.type === 'hit' ? ev.speed : vlen(next.ball.v);
+    // Measured from `before`, which is the only state that can say where the
+    // ball was when it met the bat. A serve has no incoming ball to be early on.
+    if (!wasServe) {
+      const early = contactTiming(before, seat);
+      if (early !== null) {
+        const st = seatOf(this.stats, seat as Seat);
+        st.timingSumMs += early;
+        st.timingCount++;
+      }
+    }
     if (wasServe) this.afterServe(seat, speed);
     else this.afterHit(seat, speed, false);
   }
@@ -884,6 +933,12 @@ export class PingPongMatch implements Simulation {
         `(${(this.stats.longestRallyMs / 1000).toFixed(1)}s), ` +
         `${this.stats.totalShots} shots total`,
     );
+    // The one thing about their own stroke a player cannot feel. Only said when
+    // it is big enough to act on — "3 ms early" is noise dressed as coaching.
+    for (const p of this.players) {
+      const advice = timingAdvice(seatOf(this.stats, p.seat));
+      if (advice) out.push(`${p.name}: ${advice}`);
+    }
     return out;
   }
 }

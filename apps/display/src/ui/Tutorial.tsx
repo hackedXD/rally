@@ -47,6 +47,19 @@ const TICK_MS = 120;
 
 export function Tutorial({ client, ownSeat, sport, onDone }: Props) {
   const [step, setStep] = useState(0);
+  /**
+   * Whether to offer the way out yet.
+   *
+   * It has to exist — a tutorial you cannot leave is a trap — but offering it
+   * before the first instruction has been read invites skipping a thing nobody
+   * has seen. It used to appear on hover, which put it out of reach entirely on
+   * the iPad this is designed for.
+   */
+  const [canSkip, setCanSkip] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setCanSkip(true), 6000);
+    return () => clearTimeout(id);
+  }, []);
   const [, force] = useState(0);
   const events = useGame((s) => s.recent);
 
@@ -196,14 +209,16 @@ export function Tutorial({ client, ownSeat, sport, onDone }: Props) {
 
   return (
     <div className="tutorial">
-      <div className="tut-card">
+      <div className={`tut-card${canSkip ? ' offer-skip' : ''}`}>
+        {/* The step's own instruction carries this card. A "Tutorial" label
+            above it would only repeat what the checklist underneath makes
+            obvious, and steal a line from the thing being taught. */}
         <div className="tut-head">
-          <span className="tut-label">Tutorial</span>
+          <div className="tut-title">{cur.title}</div>
           <span className="tut-count">
-            {step + 1} / {steps.current.length}
+            {step + 1}/{steps.current.length}
           </span>
         </div>
-        <div className="tut-title">{cur.title}</div>
         {detail && <div className="tut-detail">{detail}</div>}
         <div className="tut-dots">
           {steps.current.map((s, i) => (

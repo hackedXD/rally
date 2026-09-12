@@ -40,6 +40,20 @@ const app = document.getElementById('app')!;
 const pairing = readPairing();
 
 /**
+ * The two icons this screen needs, drawn rather than borrowed.
+ *
+ * One stroke weight, square caps, sitting on the same grid as the tape — an
+ * emoji here renders in somebody else's typeface at somebody else's weight and
+ * reads as a sticker left on the screen.
+ */
+const ICON = (paths: string): string =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+        stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">${paths}</svg>`;
+const SPEAKER = '<path d="M4 9h4l5-4v14l-5-4H4z"/>';
+const ICON_MUTED = ICON(`${SPEAKER}<path d="M17 9.5l4 5M21 9.5l-4 5"/>`);
+const ICON_SOUND = ICON(`${SPEAKER}<path d="M17 8.5a5 5 0 0 1 0 7"/>`);
+
+/**
  * Which screen is up.
  *
  * This exists because every lifecycle handler on this page is capable of
@@ -141,9 +155,9 @@ function startCalibration(): void {
   const ring = el('div', 'ring');
   ring.innerHTML = `
     <svg width="190" height="190" viewBox="0 0 190 190">
-      <circle cx="95" cy="95" r="84" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="10"/>
-      <circle id="arc" cx="95" cy="95" r="84" fill="none" stroke="#4ade80" stroke-width="10"
-              stroke-linecap="round" stroke-dasharray="528" stroke-dashoffset="528"/>
+      <circle cx="95" cy="95" r="84" fill="none" stroke="rgba(255,255,255,0.26)" stroke-width="10"/>
+      <circle id="arc" cx="95" cy="95" r="84" fill="none" stroke="#e3ff33" stroke-width="10"
+              stroke-linecap="butt" stroke-dasharray="528" stroke-dashoffset="528"/>
     </svg>
     <div class="pct">0%</div>`;
   wrap.append(ring);
@@ -269,8 +283,8 @@ function connect(): void {
   // attachment path, so the pose and swing handlers cannot drift apart.
   sensors?.stop();
   sensors = startSensors({
-    onPose: (q, t, reach, hold) => {
-      if (!paused) net?.pose(q, t, reach, hold);
+    onPose: (q, t, omegaDeg, reach, sway, hold) => {
+      if (!paused) net?.pose(q, t, omegaDeg, reach, sway, hold);
     },
     onSwing: (swing) => {
       if (paused) return;
@@ -327,8 +341,11 @@ function draw(): void {
       <button class="name" id="rename" aria-label="Change your name">
         ${escapeHtml(playerName)}
       </button>
-      <button class="icon-btn ${muted ? 'on' : ''}" id="mute" aria-label="Mute commentary">
-        ${muted ? '🔇' : '🔊'}
+      <span class="spacer"></span>
+      <button class="icon-btn ${muted ? 'on' : ''}" id="mute"
+              aria-label="${muted ? 'Unmute commentary' : 'Mute commentary'}"
+              aria-pressed="${muted}">
+        ${muted ? ICON_MUTED : ICON_SOUND}
       </button>
     </div>
 
@@ -339,7 +356,7 @@ function draw(): void {
       </div>
       <div class="sep"></div>
       <div class="s">
-        <div class="l">${escapeHtml(opponent ?? lite?.opponent ?? 'Them')}</div>
+        <div class="l">${escapeHtml(lite?.opponent ?? opponent ?? 'Them')}</div>
         <div class="v">${theirs}</div>
       </div>
     </div>
@@ -360,6 +377,8 @@ function draw(): void {
       <span>${swingCount} swings</span>
       <span>${lastSwingSpeed ? lastSwingSpeed.toFixed(1) + ' m/s' : '—'}</span>
       <span>${net ? Math.round(net.rtt) : 0} ms</span>
+      <span>${net && net.leadMs >= 1 ? '+' + Math.round(net.leadMs) + ' ms lead' : '—'}</span>
+      <span>${sensors?.sampleHz() ? sensors.sampleHz() + ' Hz' : '—'}</span>
     </div>
   `;
 

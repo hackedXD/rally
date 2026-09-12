@@ -31,6 +31,7 @@
     "mock:events": "tsx --tsconfig tsconfig.node.json tools/mocks/mock-events.ts",
     "echo": "tsx --tsconfig tsconfig.node.json tools/mocks/echo-server.ts",
     "replay": "tsx --tsconfig tsconfig.node.json tools/replay/replay.ts",
+    "bench:predict": "tsx --tsconfig tsconfig.node.json tools/predict/lead.ts",
     "tunnel": "node scripts/tunnel.mjs",
     "mock:snapshots": "tsx --tsconfig tsconfig.node.json tools/mocks/mock-snapshots.ts",
     "check": "npm run typecheck && npm run test",
@@ -46,5 +47,8 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "impeccable": "^4.1.0"
   }
 }

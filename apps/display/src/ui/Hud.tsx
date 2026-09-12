@@ -1,9 +1,11 @@
 /**
  * The heads-up display.
  *
- * A spectator who has never seen the game must be able to tell who is winning
- * within five seconds, so the scoreboard is large, centred, and marks the server
- * and game point without needing a legend.
+ * Court-side signage: a painted plate hanging off the top edge, two halves in
+ * the colours of the two sides of the net, with the score stencilled at a size
+ * that reads from the back of a room. A spectator who has never seen the game
+ * must be able to tell who is winning within five seconds, so the plate marks
+ * the server and match point without needing a legend.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -46,49 +48,37 @@ export function Hud({ client, ownSeat }: Props) {
   const showBanner = banner && now - banner.at < banner.ttl;
   const showSub = subtitle && now - subtitle.at < 6000;
 
+  const side = (i: 0 | 1) => {
+    const isYou = lane(ownSeat) === i;
+    const serving = score?.server !== undefined && lane(score.server) === i;
+    const player = snap?.players.find((p) => lane(p.seat) === i);
+    const dropped = player && !player.connected;
+    return (
+      <div
+        key={i}
+        className={`side${i === 1 ? ' two' : ''}${isYou ? ' you' : ''}${serving ? ' serving' : ''}`}
+      >
+        <span className={`kit${isYou ? '' : ' them'}`} aria-hidden="true" />
+        <div className="nm">{names[i] ?? `Player ${i + 1}`}</div>
+        {/* A dropped phone, marked on the plate rather than in a legend. */}
+        {dropped && <span className="off" title="Phone dropped" />}
+        <div className="pts">{score?.points[i] ?? 0}</div>
+      </div>
+    );
+  };
+
   return (
     <div className="hud">
-      <div className="scoreboard">
-        {[0, 1].map((i) => {
-          const seat = i as Seat;
-          const isYou = lane(ownSeat) === i;
-          const serving = score?.server !== undefined && lane(score.server) === i;
-          const player = snap?.players.find((p) => lane(p.seat) === i);
-          return (
-            <div
-              key={i}
-              className={`side${isYou ? ' you' : ''}${serving ? ' serving' : ''}`}
-              style={i === 1 ? { textAlign: 'right' } : undefined}
-            >
-              <div
-                className="name"
-                style={i === 1 ? { justifyContent: 'flex-end' } : undefined}
-              >
-                {i === 0 && (
-                  <span className={`dot${player && !player.connected ? ' off' : ''}`} />
-                )}
-                {names[i] ?? `Player ${i + 1}`}
-                {i === 1 && (
-                  <span className={`dot${player && !player.connected ? ' off' : ''}`} />
-                )}
-              </div>
-              <div className="pts">{score?.points[i] ?? 0}</div>
-            </div>
-          );
-        })}
-        <div className="mid" style={{ order: 1 }}>
-          <div className="label">{gamePoint ? 'Match pt' : phaseLabel(phase)}</div>
-          <div className={`value${gamePoint ? ' hot' : ''}`}>
-            {gamePoint ? '!' : rally > 0 ? `${rally}` : '—'}
-          </div>
+      <div className="scorebug">
+        {side(0)}
+        <div className={`mid${gamePoint ? ' hot' : ''}`}>
+          <div className="v">{gamePoint ? 'Match' : rally > 0 ? rally : '—'}</div>
+          <div className="k">{gamePoint ? 'point' : phaseLabel(phase, rally)}</div>
         </div>
+        {side(1)}
       </div>
 
-      {rally > 3 && phase === 'rally' && (
-        <div className="rally-pill">
-          rally <strong>{rally}</strong> shots
-        </div>
-      )}
+      {rally > 3 && phase === 'rally' && <div className="rally-tag">{rally} shots</div>}
 
       {showBanner && (
         <div className="banner flash" key={banner!.at}>
@@ -97,38 +87,37 @@ export function Hud({ client, ownSeat }: Props) {
         </div>
       )}
 
-      {showSub && (
-        <div className="subtitle">
-          <span className="who">Commentary</span>
-          {subtitle!.text}
-        </div>
-      )}
+      {/* The courtside board. The commentator is the only thing that ever
+          appears on it, so it needs no label saying whose voice this is. */}
+      {showSub && <div className="callboard">{subtitle!.text}</div>}
 
-      <div className="corner">
+      <div className="chips">
         <span className={`chip${conn !== 'open' ? ' bad' : ''}`}>
-          {conn === 'open' ? 'online' : conn}
+          {conn === 'open' ? 'Online' : conn}
         </span>
         <span className={`chip${rtt > 160 ? ' warn' : ''}`}>{Math.round(rtt)} ms</span>
-        {client.snapshots.depth < 2 && <span className="chip warn">buffering</span>}
-        {muted && <span className="chip warn">muted</span>}
+        {client.snapshots.depth < 2 && <span className="chip warn">Buffering</span>}
+        {muted && <span className="chip warn">Muted</span>}
       </div>
     </div>
   );
 }
 
-function phaseLabel(phase: string): string {
+function phaseLabel(phase: string, rally: number): string {
   switch (phase) {
     case 'serve':
-      return 'To serve';
+      return 'to serve';
     case 'rally':
-      return 'Rally';
+      // The cell above it is the shot count, and "1 shots" is the kind of thing
+      // a spectator reads once and stops trusting the scoreboard over.
+      return rally === 1 ? 'shot' : 'shots';
     case 'point':
-      return 'Point';
+      return 'point';
     case 'paused':
-      return 'Paused';
+      return 'paused';
     case 'gameover':
-      return 'Final';
+      return 'final';
     default:
-      return 'Ready';
+      return 'ready';
   }
 }

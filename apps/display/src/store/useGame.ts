@@ -13,6 +13,16 @@ import type { ConnState, RoomView } from '../net/client.js';
 
 export type Screen = 'connecting' | 'lobby' | 'preparing' | 'playing' | 'over';
 
+/**
+ * Which of the two lobby screens is up.
+ *
+ * The rack chooses a sport and re-stripes the live court behind it; the room is
+ * the two sides of that court, where phones pair and the match starts. They are
+ * separate screens because they ask separate questions, and because a stranger
+ * walking up should be looking at one of them, not at both at once.
+ */
+export type LobbyStep = 'rack' | 'room';
+
 export interface Banner {
   big: string;
   sub: string;
@@ -22,6 +32,7 @@ export interface Banner {
 
 export interface GameState {
   screen: Screen;
+  lobbyStep: LobbyStep;
   conn: ConnState;
   room: RoomView | null;
   sport: SportId;
@@ -53,6 +64,7 @@ export interface GameState {
   setConn(conn: ConnState): void;
   setRoom(room: RoomView): void;
   setScreen(screen: Screen): void;
+  setLobbyStep(step: LobbyStep): void;
   setSport(sport: SportId): void;
   setNames(names: [string, string]): void;
   setLobbyStatus(text: string, progress: number, done: boolean): void;
@@ -73,6 +85,7 @@ export interface GameState {
 
 export const useGame = create<GameState>((set) => ({
   screen: 'connecting',
+  lobbyStep: 'rack',
   conn: 'connecting',
   room: null,
   sport: 'pickleball',
@@ -100,8 +113,15 @@ export const useGame = create<GameState>((set) => ({
       sport: room.sport,
       sports: room.sports.length ? room.sports : s.sports,
       screen: s.screen === 'connecting' || s.screen === 'lobby' ? 'lobby' : s.screen,
+      /*
+       * Only the host picks the sport, so a guest has no use for the rack and is
+       * put straight in the room. Opening an invite link and being shown a
+       * carousel you are not allowed to touch is worse than not being shown one.
+       */
+      lobbyStep: room.host ? s.lobbyStep : 'room',
     })),
   setScreen: (screen) => set({ screen }),
+  setLobbyStep: (lobbyStep) => set({ lobbyStep }),
   setSport: (sport) => set({ sport }),
   setNames: (names) => set({ names }),
   setLobbyStatus: (text, progress, done) => set({ lobbyStatus: { text, progress, done } }),
@@ -122,6 +142,9 @@ export const useGame = create<GameState>((set) => ({
   reset: () =>
     set({
       screen: 'lobby',
+      // Back to the room rather than the rack: the seats that just played are
+      // still in them, and a rematch is one button away.
+      lobbyStep: 'room',
       result: null,
       subtitle: null,
       banner: null,

@@ -516,7 +516,9 @@ describe('the real phone client', () => {
     display.send({ t: 'START' });
     await display.waitFor('MATCH_START', 20_000);
     for (let i = 0; i < 5; i++) {
-      net.pose(qFromUnitZTo(vnorm([0, 0.25, 1])), performance.now());
+      // A real rotation rate, so the pose that reaches the server is one the
+      // predictor has actually led forward rather than passed straight through.
+      net.pose(qFromUnitZTo(vnorm([0, 0.25, 1])), performance.now(), [0, 120, 0]);
       await sleep(60);
     }
     net.serve();

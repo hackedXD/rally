@@ -15,6 +15,10 @@
  */
 
 import * as THREE from 'three';
+import { PALETTE } from '../theme.js';
+
+/** `#rrggbb` as the number three.js material options want. */
+const hex = (css: string): number => parseInt(css.slice(1), 16);
 
 /** Mirrors `@rally/sim`'s pingpong constants. Checked at runtime — see below. */
 export const PP = {
@@ -100,9 +104,9 @@ export function buildTable(): { group: THREE.Group; dispose: () => void } {
   // meets the fog as a hard grey band across the middle of the screen.
   const floorTex = canvasTex(256, (g, n) => {
     const r = g.createRadialGradient(n / 2, n / 2, n * 0.05, n / 2, n / 2, n * 0.5);
-    r.addColorStop(0, '#1b2632');
-    r.addColorStop(0.55, '#121a24');
-    r.addColorStop(1, '#080c11');
+    r.addColorStop(0, PALETTE.apron);
+    r.addColorStop(0.55, PALETTE.apronDeep);
+    r.addColorStop(1, PALETTE.inkBlue);
     g.fillStyle = r;
     g.fillRect(0, 0, n, n);
   });
@@ -124,7 +128,7 @@ export function buildTable(): { group: THREE.Group; dispose: () => void } {
   const TOP_T = 0.022; //   the playing surface itself
   const APRON_H = 0.075; // the skirt under it
 
-  const top = box(TABLE.WIDTH, TOP_T, TABLE.LEN, 0x10496e, {
+  const top = box(TABLE.WIDTH, TOP_T, TABLE.LEN, hex(PALETTE.court), {
     roughness: 0.3,
     metalness: 0.08,
   });
@@ -132,7 +136,7 @@ export function buildTable(): { group: THREE.Group; dispose: () => void } {
   top.receiveShadow = true;
   track(top);
 
-  const apron = box(TABLE.WIDTH - 0.04, APRON_H, TABLE.LEN - 0.04, 0x0a2438, {
+  const apron = box(TABLE.WIDTH - 0.04, APRON_H, TABLE.LEN - 0.04, hex(PALETTE.kitchen), {
     roughness: 0.85,
   });
   apron.position.y = TABLE.TOP - TOP_T - APRON_H / 2;
@@ -141,7 +145,7 @@ export function buildTable(): { group: THREE.Group; dispose: () => void } {
 
   const LINE = 0.02;
   const line = (w: number, d: number, x: number, z: number): void => {
-    const m = box(w, 0.004, d, 0xf2f6fa, { roughness: 0.4 });
+    const m = box(w, 0.004, d, hex(PALETTE.line), { roughness: 0.4 });
     m.position.set(x, TABLE.TOP + 0.003, z);
     track(m);
   };
@@ -153,7 +157,7 @@ export function buildTable(): { group: THREE.Group; dispose: () => void } {
 
   // Legs, with a rail tying each pair together. Tapered, because a leg that is
   // the same width all the way down reads as a table drawn in a spreadsheet.
-  const STEEL = { color: 0x121c26, roughness: 0.5, metalness: 0.35 };
+  const STEEL = { color: hex(PALETTE.inkBlue), roughness: 0.5, metalness: 0.35 };
   const legH = TABLE.TOP - TOP_T - APRON_H;
   for (const sz of [-1, 1]) {
     const railZ = sz * (TABLE.LEN / 2 - 0.34);
@@ -179,7 +183,7 @@ export function buildTable(): { group: THREE.Group; dispose: () => void } {
   const netTex = canvasTex(64, (g, n) => {
     g.fillStyle = '#000';
     g.fillRect(0, 0, n, n);
-    g.strokeStyle = '#b9cddd';
+    g.strokeStyle = PALETTE.chalk;
     g.lineWidth = 2;
     for (let i = 0; i <= 8; i++) {
       const k = (i / 8) * n;
@@ -209,13 +213,13 @@ export function buildTable(): { group: THREE.Group; dispose: () => void } {
   );
   mesh.position.y = TABLE.TOP + NET.HEIGHT / 2;
   track(mesh);
-  const tape = box(netW, 0.014, 0.009, 0xf2f6fa, { roughness: 0.35 });
+  const tape = box(netW, 0.014, 0.009, hex(PALETTE.line), { roughness: 0.35 });
   tape.position.y = TABLE.TOP + NET.HEIGHT;
   track(tape);
   for (const sx of [-1, 1]) {
     const post = new THREE.Mesh(
       new THREE.CylinderGeometry(0.011, 0.011, NET.HEIGHT + 0.03, 10),
-      new THREE.MeshStandardMaterial({ color: 0x46596b, roughness: 0.4, metalness: 0.5 }),
+      new THREE.MeshStandardMaterial({ color: hex(PALETTE.line), roughness: 0.4, metalness: 0.5 }),
     );
     post.position.set((sx * netW) / 2, TABLE.TOP + (NET.HEIGHT + 0.03) / 2 - 0.015, 0);
     post.castShadow = true;
@@ -246,7 +250,18 @@ export function buildTable(): { group: THREE.Group; dispose: () => void } {
  * z, the handle hangs down local -y, and BLADE_R is shared with the physics — so
  * what you see is exactly what the ball meets.
  */
-export function makeBat(seat: number): { group: THREE.Group; dispose: () => void } {
+/**
+ * One bat.
+ *
+ * `seat` places it — the bat rests on its own side of the table. `mine` colours
+ * it, and is a separate question: the app-wide rule is that you are in white and
+ * your opponent is in flag orange, which is about who is holding it rather than
+ * which end of the table it sits at.
+ */
+export function makeBat(
+  seat: number,
+  mine: boolean,
+): { group: THREE.Group; dispose: () => void } {
   const g = new THREE.Group();
   const owned: { dispose: () => void }[] = [];
   const add = (m: THREE.Mesh): void => {
@@ -255,12 +270,12 @@ export function makeBat(seat: number): { group: THREE.Group; dispose: () => void
     g.add(m);
   };
   const R = PP.BLADE_R;
-  const rubber = seat === 0 ? 0xc4372a : 0x2a63c4;
+  const rubber = mine ? hex(PALETTE.line) : hex(PALETTE.flag);
 
   // The wood, a hair wider than the rubber so it shows all the way round.
   const core = new THREE.Mesh(
     new THREE.CylinderGeometry(R * 1.03, R * 1.03, 0.006, 48),
-    new THREE.MeshStandardMaterial({ color: 0xcaa87a, roughness: 0.65 }),
+    new THREE.MeshStandardMaterial({ color: 0xe8cfa6, roughness: 0.65 }),
   );
   core.rotation.x = Math.PI / 2;
   add(core);

@@ -14,6 +14,7 @@ import {
   newPpSwing,
   stepPpSwing,
   stepReach,
+  stepSway,
   type MotionSample,
   type OrientationSample,
   type PpSwingState,
@@ -115,6 +116,15 @@ export interface SensorStream {
   /** Samples seen so far — used to detect a stalled sensor. */
   sampleCount(): number;
   /**
+   * Sensor rate over the last second, Hz. Counted, never assumed.
+   *
+   * A phone that has quietly dropped to 30 Hz — thermal throttling, low power
+   * mode, a backgrounded tab coming back — feels exactly like network lag and
+   * looks like nothing at all. This is the one number that tells the two apart,
+   * and it costs a counter.
+   */
+  sampleHz(): number;
+  /**
    * Switch swing detection to the sport being played.
    *
    * Table tennis onsets a swing on ROTATION and reports the wrist rate and the
@@ -129,10 +139,15 @@ export interface SensorHandlers {
   /**
    * Fires on every motion sample with the current paddle pose.
    *
-   * `reach` and `hold` are table tennis only and zero/false everywhere else —
-   * how far forward the hand is leaning, and whether a stroke is in progress.
+   * `omegaDeg` is the paddle's rotation rate in its own axes, deg/s. Every sport
+   * gets it, because it is what rotates the pose forward to cover the trip to the
+   * server — see `@rally/motion/predict`. Table tennis also uses it for spin.
+   *
+   * `reach`, `sway` and `hold` are table tennis only, and zero/false everywhere
+   * else: how far forward the hand is leaning, how far sideways it has travelled
+   * since this stroke armed, and whether a stroke is in progress.
    */
-  onPose(q: Quat, t: number, reach: number, hold: boolean): void;
+  onPose(q: Quat, t: number, omegaDeg: Vec3, reach: number, sway: number, hold: boolean): void;
   /** Fires when a swing completes. Must not block: this is the sensor callback. */
   onSwing(swing: SwingInput, t: number): void;
 }
@@ -150,6 +165,9 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
   const pp = new PingPongSwings();
   let samples = 0;
   let tableTennis = false;
+  let hz = 0;
+  let hzTicks = 0;
+  let hzAt = 0;
 
   const onOrientation = (ev: DeviceOrientationEvent) => {
     if (ev.alpha === null || ev.beta === null || ev.gamma === null) return;
@@ -167,6 +185,14 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
     // performance.now(), NOT event.timeStamp: that field's epoch is inconsistent
     // across browsers and the server does arithmetic on this number.
     const t = performance.now();
+    hzTicks++;
+    if (t - hzAt > 1000) {
+      // First sample sets the window rather than reporting a rate measured from
+      // an epoch of zero, which would read as thousands of Hz for one second.
+      if (hzAt > 0) hz = Math.round((hzTicks * 1000) / (t - hzAt));
+      hzTicks = 0;
+      hzAt = t;
+    }
     const sample: MotionSample = {
       rotationRate: ev.rotationRate
         ? {
@@ -186,11 +212,11 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
     fusion.pushMotion(sample, t);
     if (tableTennis) {
       const swing = pp.feed(t, fusion);
-      handlers.onPose(fusion.paddleQ, t, pp.reach, pp.armed);
+      handlers.onPose(fusion.paddleQ, t, fusion.omegaDeg, pp.reach, pp.sway, pp.armed);
       if (swing) handlers.onSwing(swing, t);
       return;
     }
-    handlers.onPose(fusion.paddleQ, t, 0, false);
+    handlers.onPose(fusion.paddleQ, t, fusion.omegaDeg, 0, 0, false);
     const swing = swings.feed(t, fusion.linearAccel, fusion.paddleQ);
     if (swing) handlers.onSwing(swing, t);
   };
@@ -202,6 +228,7 @@ export function startSensors(handlers: SensorHandlers): SensorStream {
     fusion,
     swings,
     sampleCount: () => samples,
+    sampleHz: () => hz,
     setSport(id: string) {
       const next = id === 'tabletennis';
       if (next === tableTennis) return;
@@ -231,11 +258,24 @@ class PingPongSwings {
   private state: PpSwingState<PpCapture> = newPpSwing<PpCapture>();
   private lean = { reach: 0, vel: 0 };
   private vel: Vec3 = [0, 0, 0];
+  private swayM = 0;
   private lastT: number | null = null;
 
   /** Metres of forward lean. Sent with the pose. */
   get reach(): number {
     return this.lean.reach;
+  }
+
+  /**
+   * Metres the hand has travelled sideways since this stroke armed, positive to
+   * the player's right. Zero outside a stroke.
+   *
+   * This is the one thing the server's position freeze must let through:
+   * changing wings IS the hand crossing the body, and the freeze is only right
+   * about rotation. See `REACH_X`.
+   */
+  get sway(): number {
+    return this.swayM;
   }
 
   /** True mid-stroke, so the server freezes the bat's position. */
@@ -247,6 +287,7 @@ class PingPongSwings {
     this.state = newPpSwing<PpCapture>();
     this.lean = { reach: 0, vel: 0 };
     this.vel = [0, 0, 0];
+    this.swayM = 0;
     this.lastT = null;
   }
 
@@ -270,8 +311,13 @@ class PingPongSwings {
           clampAbs(this.vel[1] + a[1] * dt, MAX_VLIN),
           clampAbs(this.vel[2] + a[2] * dt, MAX_VLIN),
         ];
+        // +X is the player's right, so this integral is exactly the cross-body
+        // travel the freeze has to let through. Same window as `vel`, discarded
+        // with it, so it has no time to drift.
+        this.swayM = stepSway(this.swayM, this.vel[0], dt);
       } else {
         this.vel = [0, 0, 0];
+        this.swayM = 0;
       }
       // +Z is the direction the player faces, so forward acceleration is +a[2].
       this.lean = stepReach(this.lean, a[2], accelMag, dps, dt);

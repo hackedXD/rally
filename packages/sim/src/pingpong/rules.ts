@@ -446,6 +446,28 @@ export const swingCheck = (
   return strokeMatches(match, player, swing?.vsw) ? null : 'wrong wing';
 };
 
+/**
+ * How early or late that contact was, in milliseconds. Positive is early.
+ *
+ * The same `IDEAL_CONTACT` the placement buckets use, deliberately: there is one
+ * right moment in this game, and the shot it produces and the number a player
+ * reads afterwards have to agree about where it is.
+ *
+ * Converted to time rather than left in metres because a player can feel
+ * milliseconds and cannot feel four centimetres. It is also the one thing about
+ * their own stroke they cannot feel at all — everything else about a miss is
+ * visible, and being consistently 40 ms early is not.
+ *
+ * Null when the ball is barely moving down the table, where "early" has no
+ * meaning and the division blows up.
+ */
+export const contactTiming = (match: PpMatchState, player: 0 | 1): number | null => {
+  const d = dirOf(player);
+  const err = (match.ball.p[2] - -d * IDEAL_CONTACT) * d;
+  const vz = Math.abs(match.ball.v[2]);
+  return vz > 0.2 ? Math.round((err / vz) * 1000) : null;
+};
+
 /** Timing -> placement, quantized. Noisy wrists need buckets, not a continuum. */
 const placementBucket = (match: PpMatchState, player: 0 | 1): number => {
   const d = dirOf(player);

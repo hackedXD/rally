@@ -9,10 +9,29 @@
 
 import * as THREE from 'three';
 import type { CourtSpec, SportId } from '@rally/protocol';
+import { PALETTE } from '../theme.js';
 
 export interface CourtLook {
   surface: string;
   surfaceEdge: string;
+  /** The second painted field: the kitchen, or badminton's forecourt. */
+  zone: string;
+  /**
+   * What type must be set in when it sits on `surround`.
+   *
+   * The apron floods the whole viewport behind the lobby, and it is not the same
+   * colour for every sport — badminton's is green, where white type measures
+   * 2.28:1 and is simply unreadable. Each sport therefore carries the ink its own
+   * ground can hold.
+   */
+  groundInk: string;
+  /**
+   * What type must be set in when it sits on `surface` — the playing area
+   * itself, which is green for pickleball and blue for the other two. The rack
+   * stencils the sport's name across it, so this is a different question from
+   * `groundInk` and has a different answer per sport.
+   */
+  surfaceInk: string;
   line: string;
   surround: string;
   accent: string;
@@ -202,39 +221,64 @@ function roundedRect(w: number, h: number, r: number): THREE.Shape {
   return s;
 }
 
+/**
+ * The paint.
+ *
+ * A real outdoor court is acrylic over asphalt in two flat fields: a saturated
+ * in-bounds colour inside a contrasting apron, with the non-volley zone painted
+ * differently again. No gradients, because paint does not have any — the whole
+ * look reads as court only while the fields stay flat.
+ *
+ * Every entry is a getter rather than a value. Module bodies run before
+ * `syncTheme()` reconciles the palette against the stylesheet, so a captured
+ * copy here would be the one thing in the app that could still drift from CSS.
+ */
 export const LOOKS: Record<SportId, CourtLook> = {
   pickleball: {
-    surface: '#1d4f6b',
-    surfaceEdge: '#17425a',
-    line: '#f4f8ff',
-    surround: '#123040',
-    accent: '#4ade80',
+    get surface() { return PALETTE.court; },
+    get surfaceEdge() { return PALETTE.apron; },
+    get zone() { return PALETTE.kitchen; },
+    get line() { return PALETTE.line; },
+    get surround() { return PALETTE.apron; },
+    get accent() { return PALETTE.optic; },
+    get groundInk() { return PALETTE.line; },
+    get surfaceInk() { return PALETTE.ink; },
   },
   // Table tennis is not drawn from a `CourtLook` — `PingPongScene` builds real
   // geometry instead. These are the lobby's colours for it, and the accent the
   // HUD and the timing ring pick up.
   tabletennis: {
-    surface: '#10496e',
-    surfaceEdge: '#0a2438',
-    line: '#f2f6fa',
-    surround: '#0b0f14',
-    accent: '#7fd4ff',
+    get surface() { return PALETTE.apron; },
+    get surfaceEdge() { return PALETTE.apronDeep; },
+    get zone() { return PALETTE.apronDeep; },
+    get line() { return PALETTE.line; },
+    get surround() { return PALETTE.apronDeep; },
+    get accent() { return PALETTE.optic; },
+    get groundInk() { return PALETTE.line; },
+    get surfaceInk() { return PALETTE.line; },
   },
+  // Blue in-bounds against a green apron: the same two fields as pickleball,
+  // swapped, so the two 13-metre courts are never mistaken for each other in the
+  // half second the carousel takes to re-stripe between them.
   badminton: {
-    // Tournament mats are green or blue; green keeps it instantly distinct from
-    // the two blue courts.
-    surface: '#1f6b4a',
-    surfaceEdge: '#17553b',
-    line: '#f6fff8',
-    surround: '#0f2a20',
-    accent: '#fbbf24',
+    get surface() { return PALETTE.apron; },
+    get surfaceEdge() { return PALETTE.court; },
+    get zone() { return PALETTE.apronDeep; },
+    get line() { return PALETTE.line; },
+    get surround() { return PALETTE.court; },
+    get accent() { return PALETTE.optic; },
+    get groundInk() { return PALETTE.inkBlue; },
+    get surfaceInk() { return PALETTE.line; },
   },
   bowling: {
-    surface: '#8a5a2b',
-    surfaceEdge: '#6d4720',
-    line: '#f1e0c6',
-    surround: '#1a1410',
-    accent: '#fbbf24',
+    get surface() { return PALETTE.courtAlt; },
+    get surfaceEdge() { return PALETTE.apron; },
+    get zone() { return PALETTE.kitchen; },
+    get line() { return PALETTE.line; },
+    get surround() { return PALETTE.apron; },
+    get accent() { return PALETTE.optic; },
+    get groundInk() { return PALETTE.line; },
+    get surfaceInk() { return PALETTE.ink; },
   },
 };
 
@@ -252,15 +296,22 @@ export function makeCourtTexture(court: CourtSpec, look: CourtLook, sport: Sport
   canvas.height = h;
   const g = canvas.getContext('2d')!;
 
-  const grad = g.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, look.surfaceEdge);
-  grad.addColorStop(0.5, look.surface);
-  grad.addColorStop(1, look.surfaceEdge);
-  g.fillStyle = grad;
+  // Flat, because paint is flat. A gradient here is the single thing that would
+  // stop this reading as a painted court and start it reading as a lit panel.
+  g.fillStyle = look.surface;
   g.fillRect(0, 0, w, h);
 
-  // Subtle texture so a flat plane does not read as flat.
-  g.globalAlpha = 0.05;
+  // The second painted field, laid down before the lines so the tape sits on top
+  // of it exactly as it does on a real court.
+  if (court.nonVolleyZone > 0) {
+    const zone = court.nonVolleyZone * pxPerM;
+    g.fillStyle = look.zone;
+    g.fillRect(0, h / 2 - zone, w, zone * 2);
+  }
+
+  // Acrylic over asphalt has a tooth to it. Kept well under the line contrast so
+  // the surface reads as a material rather than as noise.
+  g.globalAlpha = 0.035;
   for (let i = 0; i < 2600; i++) {
     g.fillStyle = i % 2 ? '#ffffff' : '#000000';
     g.fillRect(Math.random() * w, Math.random() * h, 2, 2);

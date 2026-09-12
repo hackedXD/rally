@@ -24,6 +24,39 @@ export interface Tuning {
     /** Ball extrapolation ceiling on the display when the snapshot buffer runs dry. */
     extrapolateMaxMs: number;
   };
+  /**
+   * Paddle stroke prediction — latency compensation on the pose the phone
+   * sends. See `@rally/motion/predict`.
+   */
+  predict: {
+    /**
+     * Fraction of the measured lead actually applied. 0 turns prediction off,
+     * which is the point of it being a slider rather than a constant: the
+     * feature can be A/B'd mid-rally against the exact code path that ships.
+     */
+    leadScale: number;
+    /**
+     * How far ahead the model is ever willing to guess, ms.
+     *
+     * Past this the guess is worth less than the lag it hides, and a single
+     * dropped packet on a bad network would otherwise fling the paddle a
+     * quarter turn. The cap is the guarantee, not the estimate.
+     */
+    maxLeadMs: number;
+    /**
+     * Sensor sample -> event handler, ms. Not measurable from JavaScript; the
+     * iOS pipeline is about a frame, and `maxLeadMs` bounds what being wrong
+     * about it can cost.
+     */
+    sensorLagMs: number;
+    /**
+     * Rotation rates below this are noise rather than a stroke, deg/s.
+     *
+     * A hand held still still reports a degree or two a second of gyro noise.
+     * Leading on that adds jitter to the one thing on screen that was steady.
+     */
+    minRateDps: number;
+  };
   motion: {
     fuseAlpha: number;
     swingOnsetAccel: number;
@@ -230,6 +263,12 @@ export const DEFAULT_TUNING: Tuning = {
     disconnectGraceMs: 10_000,
     historyTicks: 200,
     extrapolateMaxMs: 120,
+  },
+  predict: {
+    leadScale: 1,
+    maxLeadMs: 90,
+    sensorLagMs: 16,
+    minRateDps: 8,
   },
   motion: {
     fuseAlpha: 0.02,

@@ -121,8 +121,12 @@ interface SeatSlot {
    */
   rawPose: Quat;
   poseCt: number;
-  /** Table tennis: forward lean, metres, and whether a stroke is in progress. */
+  /**
+   * Table tennis: forward lean and cross-body travel, metres, and whether a
+   * stroke is in progress.
+   */
   reach: number;
+  sway: number;
   holdPose: boolean;
   yawOffset: number;
   paused: boolean;
@@ -195,6 +199,7 @@ export class Room {
       rawPose: QUAT_IDENTITY,
       poseCt: 0,
       reach: 0,
+      sway: 0,
       holdPose: false,
       yawOffset: 0,
       paused: false,
@@ -330,7 +335,6 @@ export class Room {
     this.touch();
   }
 
-
   /**
    * Keep the two players distinguishable.
    *
@@ -369,13 +373,21 @@ export class Room {
   }
 
   /** Pose, forwarded straight to this seat's own display (transport path A). */
-  onPose(seat: Seat, quantised: readonly number[], ct: number, z?: number, hold?: boolean): void {
+  onPose(
+    seat: Seat,
+    quantised: readonly number[],
+    ct: number,
+    z?: number,
+    dx?: number,
+    hold?: boolean,
+  ): void {
     const slot = this.slots[lane(seat)];
     const raw = dequantQuat(quantised);
     slot.rawPose = raw;
     slot.pose = poseToWorld(seat, raw);
     slot.poseCt = ct;
     if (Number.isFinite(z)) slot.reach = z as number;
+    if (Number.isFinite(dx)) slot.sway = dx as number;
     slot.holdPose = hold === true;
     // Out of band and immediate: your own paddle should feel instant. Everything
     // else can be interpolated.
@@ -649,6 +661,7 @@ export class Room {
         ? { 0: this.slots[0].rawPose, 1: this.slots[1].rawPose }
         : { 0: this.slots[0].pose, 1: this.slots[1].pose },
       reach: { 0: this.slots[0].reach, 1: this.slots[1].reach },
+      sway: { 0: this.slots[0].sway, 1: this.slots[1].sway },
       holdPose: { 0: this.slots[0].holdPose, 1: this.slots[1].holdPose },
       connected: {
         0: this.slots[0].bot !== null || this.slots[0].droppedAt === null,

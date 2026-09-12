@@ -69,12 +69,14 @@ export interface TickInput {
   pose: Record<number, Quat | undefined>;
   connected: Record<number, boolean>;
   /**
-   * How far forward each seat's hand is leaning, metres, and whether a stroke is
-   * in progress on that seat. Table tennis only — that engine tracks a real bat
-   * position, and these are the two things a pose alone cannot say. The original
-   * engine ignores both.
+   * How far forward each seat's hand is leaning, how far sideways it has
+   * travelled inside the current stroke, and whether a stroke is in progress on
+   * that seat. All metres, all table tennis only — that engine tracks a real bat
+   * position, and these are the things a pose alone cannot say. The original
+   * engine ignores them.
    */
   reach?: Record<number, number | undefined>;
+  sway?: Record<number, number | undefined>;
   holdPose?: Record<number, boolean | undefined>;
   /** Seats that pressed SERVE since the last tick. */
   serveRequests: Seat[];
